@@ -1,5 +1,5 @@
 This is an extension for Inkscape that will export all Bezier curves to Javascript code to reproduce those curves using
-the [Freesewing](http://freesewing.org) API. This is a convenience tool digitize sewing patterns. Trace them in
+the [Freesewing](http://freesewing.org) API. This is a convenience tool to digitize sewing patterns. Trace them in
 Inkscape, export using this tool, then copy/paste the output to your Freesewing design's draft() method. You will need
 to fix up coordinates to make them use Freesewing measurements manually, of course.
 
