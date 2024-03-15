@@ -11,7 +11,7 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
     def add_arguments(self, pars):
         pars.add_argument("--tab", type=str, dest="what")
         pars.add_argument("--fp_precision", type=int, default=4)
-        pass
+        pars.add_argument("--show_debug_comments", type=inkex.Boolean)
 
     def get_point_names(self, id, point_counter):
         ep_name = f"{id}_p{point_counter}_ep"
@@ -50,6 +50,8 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
 
         current_pen_position = Point(0, 0)
 
+        add_debug_cmts = self.options.show_debug_comments == True
+
         for command in path:
             #self.msg(f"1: {command.__class__}")
             #self.msg(f"2: {command.__class__.__name__}")
@@ -66,10 +68,12 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
                 mt_x = self.format_coordinate_value(current_pen_position.x + command.dx)
                 mt_y = self.format_coordinate_value(current_pen_position.y + command.dy)
 
-                points_code += f"// {str(command)}\n"
+                if add_debug_cmts:
+                    points_code += f"// {str(command)}\n"
                 points_code += f"points.{point_name} = new Point({mt_x}, {mt_y})\n"
 
-                path_code += f"\n    // inkex.paths.move: {str(command)}"
+                if add_debug_cmts:
+                    path_code += f"\n    // inkex.paths.move: {str(command)}"
                 path_code += f"\n    .move(points.{point_name})"
 
                 current_pen_position = Point(mt_x, mt_y)
@@ -83,10 +87,12 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
                 mt_x = self.format_coordinate_value(command.x)
                 mt_y = self.format_coordinate_value(command.y)
 
-                points_code += f"// {str(command)}\n"
+                if add_debug_cmts:
+                    points_code += f"// {str(command)}\n"
                 points_code += f"points.{point_name} = new Point({mt_x}, {mt_y})\n"
 
-                path_code += f"\n    // inkex.paths.Move: {str(command)}"
+                if add_debug_cmts:
+                    path_code += f"\n    // inkex.paths.Move: {str(command)}"
                 path_code += f"\n    .move(points.{point_name})"
 
                 current_pen_position = Point(mt_x, mt_y)
@@ -107,13 +113,15 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
                 ep_y = self.format_coordinate_value(current_pen_position.y + command.dy4)
 
                 # Control points are relative but in FS always absolute, so we need to convert.
-                points_code += f"// {str(command)}\n"
+                if add_debug_cmts:
+                    points_code += f"// {str(command)}\n"
                 points_code += f"points.{cp1_name} = new Point({cp1_x}, {cp1_y})\n"
                 points_code += f"points.{cp2_name} = new Point({cp2_x}, {cp2_y})\n"
                 points_code += f"points.{ep_name} = new Point({ep_x}, {ep_y})\n"
 
                 # We can safely chain here, because there's always an m or M before this.
-                path_code += f"\n    // inkex.paths.curve: {str(command)}"
+                if add_debug_cmts:
+                    path_code += f"\n    // inkex.paths.curve: {str(command)}"
                 path_code += f"\n    .curve("
                 path_code += f"\n        points.{cp1_name},"
                 path_code += f"\n        points.{cp2_name},"
@@ -137,13 +145,15 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
                 ep_x = self.format_coordinate_value(command.x4)
                 ep_y = self.format_coordinate_value(command.y4)
 
-                points_code += f"// {str(command)}\n"
+                if add_debug_cmts:
+                    points_code += f"// {str(command)}\n"
                 points_code += f"points.{cp1_name} = new Point({cp1_x}, {cp1_y})\n"
                 points_code += f"points.{cp2_name} = new Point({cp2_x}, {cp2_y})\n"
                 points_code += f"points.{ep_name} = new Point({ep_x}, {ep_y})\n"
 
                 # We can safely chain here, because there's always an m or M before this.
-                path_code += f"\n    // inkex.paths.Curve: {str(command)}"
+                if add_debug_cmts:
+                    path_code += f"\n    // inkex.paths.Curve: {str(command)}"
                 path_code += f"\n    .curve("
                 path_code += f"\n        points.{cp1_name},"
                 path_code += f"\n        points.{cp2_name},"

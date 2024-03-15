@@ -6,6 +6,7 @@
   <param name="tab" type="notebook">
     <page name="settings" gui-text="Settings">
       <param name="fp_precision" type="int" min="0" max="16" gui-text="Floating point precision:">4</param>
+      <param name="show_debug_comments" type="bool" gui-text="Add extra comments on the source SVG structure to the generated code.">false</param>
     </page>
     <page name="help" gui-text="Help">
       <label>This extension exports all paths in the document to Javascript code that is compatible with the freesewing.org API. See https://github.com/roel-v/inkscape_to_fs_js for more details..</label>
