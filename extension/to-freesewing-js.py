@@ -61,6 +61,10 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
     def default_handler(self, value):
         self.msg(f"Unknown Inkex type: {type(value)}")
 
+    def set_current_pen(self, point_name, x, y):
+        self.current_pen_point = point_name
+        self.current_pen_position = Point(x, y)
+
     def handle_move(self, command: inkex.paths.move):
         # Relative move
         #  str(command) = "m 42.6289 138.544"
@@ -81,7 +85,7 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
             self.path_code += f"\n    // inkex.paths.move: {str(command)}"
         self.path_code += f"\n    .move(points.{point_name})"
 
-        self.current_pen_position = Point(mt_x, mt_y)
+        self.set_current_pen(point_name, mt_x, mt_y)
 
     def handle_Move(self, command: inkex.paths.Move):
         # Absolute move
@@ -103,7 +107,7 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
             self.path_code += f"\n    // inkex.paths.Move: {str(command)}"
         self.path_code += f"\n    .move(points.{point_name})"
 
-        self.current_pen_position = Point(mt_x, mt_y)
+        self.set_current_pen(point_name, mt_x, mt_y)
 
     def handle_curve(self, command: inkex.paths.curve):
         # Relative Bezier curve
@@ -139,7 +143,7 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
         self.path_code += f"\n        points.{ep_name}"
         self.path_code += f"\n    )"
 
-        self.current_pen_position = Point(ep_x, ep_y)
+        self.set_current_pen(ep_name, ep_x, ep_y)
 
     def handle_Curve(self, command: inkex.paths.Curve):
         # Absolute Bezier curve
@@ -174,7 +178,7 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
         self.path_code += f"\n        points.{ep_name}"
         self.path_code += f"\n    )"
 
-        self.current_pen_position = Point(ep_x, ep_y)
+        self.set_current_pen(ep_name, ep_x, ep_y)
 
     def handle_horz(self, command: inkex.paths.horz):
         # Relative horizontal line
@@ -194,7 +198,7 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
             self.path_code += f"\n    // inkex.paths.horz: {str(command)}"
         self.path_code += f"\n    .line(points.{point_name})"
 
-        self.current_pen_position = Point(lt_x, lt_y)
+        self.set_current_pen(point_name, lt_x, lt_y)
 
     def handle_Horz(self, command: inkex.paths.Horz):
         # Absolute horizontal line
@@ -214,7 +218,7 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
             self.path_code += f"\n    // inkex.paths.Horz: {str(command)}"
         self.path_code += f"\n    .line(points.{point_name})"
 
-        self.current_pen_position = Point(lt_x, lt_y)
+        self.set_current_pen(point_name, lt_x, lt_y)
 
     def handle_vert(self, command: inkex.paths.vert):
         # Relative vertical line
@@ -234,7 +238,7 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
             self.path_code += f"\n    // inkex.paths.vert: {str(command)}"
         self.path_code += f"\n    .line(points.{point_name})"
 
-        self.current_pen_position = Point(lt_x, lt_y)
+        self.set_current_pen(point_name, lt_x, lt_y)
 
     def handle_Vert(self, command: inkex.paths.Vert):
         # Absolute vertical line
@@ -254,13 +258,25 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
             self.path_code += f"\n    // inkex.paths.Vert: {str(command)}"
         self.path_code += f"\n    .line(points.{point_name})"
 
-        self.current_pen_position = Point(lt_x, lt_y)
+        self.set_current_pen(point_name, lt_x, lt_y)
+
+    def do_close(self, command, cmd_name):
+        add_debug_cmts = self.options.show_debug_comments == True
+
+        if add_debug_cmts:
+            self.points_code += f"// {str(command)}\n"
+
+        if add_debug_cmts:
+            self.path_code += f"\n    // inkex.paths.{cmd_name}Close: {str(command)}"
+        self.path_code += f"\n    .line(points.{self.start_point})"
+
+        self.set_current_pen(self.start_point, self.start_position.x, self.start_position.y)
 
     def handle_zoneClose(self, command: inkex.paths.zoneClose):
-        pass
+        self.do_close(command, "zone")
 
     def handle_ZoneClose(self, command: inkex.paths.ZoneClose):
-        pass
+        self.do_close(command, "Zone")
 
     def path_to_code(self, path: inkex.paths.PathCommand):
         """
@@ -273,6 +289,7 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
         self.points_code = f"// Path: {self.current_element_id}\n"
         self.path_code = "paths." + clean_name(self.current_element_id) + " = new Path()"
 
+        first_command = True
         for command in path:
             #self.msg(f"1: {command.__class__}")
             #self.msg(f"2: {command.__class__.__name__}")
@@ -281,6 +298,11 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
 
             handler = self.dispatch_table.get(type(command), self.default_handler)
             handler(command)
+
+            if first_command:
+                first_command = False
+                self.start_point = self.current_pen_point
+                self.start_position = self.current_pen_position
 
         return True
 
