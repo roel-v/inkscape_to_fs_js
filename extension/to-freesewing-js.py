@@ -18,12 +18,15 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
         pars.add_argument("--fp_precision", type=int, default=4)
         pars.add_argument("--show_debug_comments", type=inkex.Boolean)
 
-    def get_point_names(self, id, point_counter):
-        ep_name = clean_name(f"{id}_p{point_counter}_ep")
-        cp1_name = clean_name(f"{id}_p{point_counter}_cp1")
-        cp2_name = clean_name(f"{id}_p{point_counter}_cp2")
+    def get_curve_point_names(self, id, point_counter):
+        ep_name = self.get_point_name(id, point_counter) + "_ep"
+        cp1_name = self.get_point_name(id, point_counter) + "_cp1"
+        cp2_name = self.get_point_name(id, point_counter) + "_cp2"
 
         return (ep_name, cp1_name, cp2_name)
+
+    def get_point_name(self, id, point_counter):
+        return clean_name(f"{id}_p{point_counter}")
 
     def format_coordinate_value(self, coord):
         fp = self.options.fp_precision
@@ -67,7 +70,7 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
                 # Relative move
                 #  str(command) = "m 42.6289 138.544"
 
-                point_name = clean_name(f"{id}_p{point_counter}")
+                point_name = self.get_point_name(id, point_counter)
                 point_counter += 1
 
                 mt_x = self.format_coordinate_value(current_pen_position.x + command.dx)
@@ -86,7 +89,7 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
                 # Absolute move
                 #  str(command) = "M 42.6289 138.544"
 
-                point_name = clean_name(f"{id}_p{point_counter}")
+                point_name = self.get_point_name(id, point_counter)
                 point_counter += 1
 
                 mt_x = self.format_coordinate_value(command.x)
@@ -106,7 +109,7 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
                 # If we get here, the curve is a 'c' in SVG so using relative control point coordinates. This
                 # corresponds to the inkex.paths.curve class, 'curve' with a lowercase 'c'.
 
-                ep_name, cp1_name, cp2_name = self.get_point_names(id, point_counter)
+                ep_name, cp1_name, cp2_name = self.get_curve_point_names(id, point_counter)
 
                 point_counter += 1
 
@@ -139,7 +142,7 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
                 # If we get here, the curve is a 'C' in SVG so using absolute control point coordinates. This
                 # corresponds to the inkex.paths.Curve class, 'Curve' with a uppercase 'C'.
 
-                ep_name, cp1_name, cp2_name = self.get_point_names(id, point_counter)
+                ep_name, cp1_name, cp2_name = self.get_curve_point_names(id, point_counter)
 
                 point_counter += 1
 
