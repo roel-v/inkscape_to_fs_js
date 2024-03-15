@@ -2,17 +2,43 @@ import inkex
 import inkex.paths
 from inkex import TextElement, PathElement
 
+class Point():
+    def __init__(self, x, y):
+        self.x = round(float(x))
+        self.y = round(float(y))
+
 class ToFreesewingJS(inkex.extensions.OutputExtension):
     def add_arguments(self, pars):
         pars.add_argument("--tab", type=str, dest="what")
         pars.add_argument("--fp_precision", type=int, default=4)
         pass
 
+    def get_point_names(self, id, point_counter):
+        ep_name = f"{id}_p{point_counter}_ep"
+        cp1_name = f"{id}_p{point_counter}_cp1"
+        cp2_name = f"{id}_p{point_counter}_cp2"
+
+        return (ep_name, cp1_name, cp2_name)
+
+    def format_coordinate_value(self, coord):
+        fp = self.options.fp_precision
+
+        # Format the number with the desired precision
+        formatted_value = f"{coord:.{fp}f}"
+        # Split the formatted value into the integer and decimal parts
+        int_part, dec_part = formatted_value.split('.')
+        # Remove trailing zeros from the decimal part
+        dec_part = dec_part.rstrip('0')
+        # Combine the parts back, omitting the decimal part if it's empty
+        final_value = int_part if dec_part == '' else f"{int_part}.{dec_part}"
+
+        return final_value
+
     def path_to_code(self, id: str, path: inkex.paths.PathCommand):
         """
         This function makes JS code that defines a list of points, and then a Path that combines those points.
         """
-        points_code = f"# Path: {id}"
+        points_code = f"// Path: {id}\n"
         path_code = f"paths.{id} = new Path()"
 
         point_counter = 1
@@ -22,7 +48,7 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
         # c 26.9235 -17.6685 28.0984 36.3167 48.7989 39.8244
         # c 22.6554 3.83889 64.7847 -23.5581 64.7847 -23.5581
 
-        fp = self.options.fp_precision
+        current_pen_position = Point(0, 0)
 
         for command in path:
             #self.msg(f"1: {command.__class__}")
@@ -31,31 +57,100 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
             # See https://inkscape.gitlab.io/inkscape/doxygen-extensions/paths_8py_source.html .
 
             if isinstance(command, inkex.paths.move):
+                # Relative move
                 #  str(command) = "m 42.6289 138.544"
 
                 point_name = f"{id}_p{point_counter}"
                 point_counter += 1
 
-                points_code += f"points.{point_name} = new Point({command.dx:.{fp}f}, {command.dy:.{fp}f})\n"
+                mt_x = self.format_coordinate_value(current_pen_position.x + command.dx)
+                mt_y = self.format_coordinate_value(current_pen_position.y + command.dy)
 
+                points_code += f"// {str(command)}\n"
+                points_code += f"points.{point_name} = new Point({mt_x}, {mt_y})\n"
+
+                path_code += f"\n    // inkex.paths.move: {str(command)}"
                 path_code += f"\n    .move(points.{point_name})"
-            elif isinstance(command, inkex.paths.curve):
-                #code += f"Curve {str(command)}"
 
-                ep_name = f"{id}_p{point_counter}_ep"
-                cp1_name = f"{id}_p{point_counter}_cp1"
-                cp2_name = f"{id}_p{point_counter}_cp2"
+                current_pen_position = Point(mt_x, mt_y)
+            if isinstance(command, inkex.paths.Move):
+                # Absolute move
+                #  str(command) = "M 42.6289 138.544"
+
+                point_name = f"{id}_p{point_counter}"
                 point_counter += 1
 
-                points_code += f"points.{ep_name} = new Point({command.dx2:.{fp}f}, {command.dy2:.{fp}f})\n"
-                points_code += f"points.{cp1_name} = new Point({command.dx3:.{fp}f}, {command.dy3:.{fp}f})\n"
-                points_code += f"points.{cp2_name} = new Point({command.dx4:.{fp}f}, {command.dy4:.{fp}f})\n"
+                mt_x = self.format_coordinate_value(command.x)
+                mt_y = self.format_coordinate_value(command.y)
 
+                points_code += f"// {str(command)}\n"
+                points_code += f"points.{point_name} = new Point({mt_x}, {mt_y})\n"
+
+                path_code += f"\n    // inkex.paths.Move: {str(command)}"
+                path_code += f"\n    .move(points.{point_name})"
+
+                current_pen_position = Point(mt_x, mt_y)
+            elif isinstance(command, inkex.paths.curve):
+                # Relative Bezier curve
+                # If we get here, the curve is a 'c' in SVG so using relative control point coordinates. This
+                # corresponds to the inkex.paths.curve class, 'curve' with a lowercase 'c'.
+
+                ep_name, cp1_name, cp2_name = self.get_point_names(id, point_counter)
+
+                point_counter += 1
+
+                cp1_x = self.format_coordinate_value(current_pen_position.x + command.dx2)
+                cp1_y = self.format_coordinate_value(current_pen_position.y + command.dy2)
+                cp2_x = self.format_coordinate_value(current_pen_position.x + command.dx3)
+                cp2_y = self.format_coordinate_value(current_pen_position.y + command.dy3)
+                ep_x = self.format_coordinate_value(current_pen_position.x + command.dx4)
+                ep_y = self.format_coordinate_value(current_pen_position.y + command.dy4)
+
+                # Control points are relative but in FS always absolute, so we need to convert.
+                points_code += f"// {str(command)}\n"
+                points_code += f"points.{cp1_name} = new Point({cp1_x}, {cp1_y})\n"
+                points_code += f"points.{cp2_name} = new Point({cp2_x}, {cp2_y})\n"
+                points_code += f"points.{ep_name} = new Point({ep_x}, {ep_y})\n"
+
+                # We can safely chain here, because there's always an m or M before this.
+                path_code += f"\n    // inkex.paths.curve: {str(command)}"
                 path_code += f"\n    .curve("
-                path_code += f"\n        points.{ep_name},"
                 path_code += f"\n        points.{cp1_name},"
-                path_code += f"\n        points.{cp2_name}"
+                path_code += f"\n        points.{cp2_name},"
+                path_code += f"\n        points.{ep_name}"
                 path_code += f"\n    )"
+
+                current_pen_position = Point(ep_x, ep_y)
+            elif isinstance(command, inkex.paths.Curve):
+                # Absolute Bezier curve
+                # If we get here, the curve is a 'C' in SVG so using absolute control point coordinates. This
+                # corresponds to the inkex.paths.Curve class, 'Curve' with a uppercase 'C'.
+
+                ep_name, cp1_name, cp2_name = self.get_point_names(id, point_counter)
+
+                point_counter += 1
+
+                cp1_x = self.format_coordinate_value(command.x2)
+                cp1_y = self.format_coordinate_value(command.y2)
+                cp2_x = self.format_coordinate_value(command.x3)
+                cp2_y = self.format_coordinate_value(command.y3)
+                ep_x = self.format_coordinate_value(command.x4)
+                ep_y = self.format_coordinate_value(command.y4)
+
+                points_code += f"// {str(command)}\n"
+                points_code += f"points.{cp1_name} = new Point({cp1_x}, {cp1_y})\n"
+                points_code += f"points.{cp2_name} = new Point({cp2_x}, {cp2_y})\n"
+                points_code += f"points.{ep_name} = new Point({ep_x}, {ep_y})\n"
+
+                # We can safely chain here, because there's always an m or M before this.
+                path_code += f"\n    // inkex.paths.Curve: {str(command)}"
+                path_code += f"\n    .curve("
+                path_code += f"\n        points.{cp1_name},"
+                path_code += f"\n        points.{cp2_name},"
+                path_code += f"\n        points.{ep_name}"
+                path_code += f"\n    )"
+
+                current_pen_position = Point(ep_x, ep_y)
 
         return points_code, path_code
 
