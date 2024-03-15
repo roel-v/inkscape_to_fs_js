@@ -177,16 +177,84 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
         self.current_pen_position = Point(ep_x, ep_y)
 
     def handle_horz(self, command: inkex.paths.horz):
-        pass
+        # Relative horizontal line
+        add_debug_cmts = self.options.show_debug_comments == True
+
+        point_name = self.get_current_point_name()
+        self.point_counter += 1
+
+        lt_x = self.format_coordinate_value(self.current_pen_position.x + command.dx)
+        lt_y = self.format_coordinate_value(self.current_pen_position.y)
+
+        if add_debug_cmts:
+            self.points_code += f"// {str(command)}\n"
+        self.points_code += f"points.{point_name} = new Point({lt_x}, {lt_y})\n"
+
+        if add_debug_cmts:
+            self.path_code += f"\n    // inkex.paths.horz: {str(command)}"
+        self.path_code += f"\n    .line(points.{point_name})"
+
+        self.current_pen_position = Point(lt_x, lt_y)
 
     def handle_Horz(self, command: inkex.paths.Horz):
-        pass
+        # Absolute horizontal line
+        add_debug_cmts = self.options.show_debug_comments == True
+
+        point_name = self.get_current_point_name()
+        self.point_counter += 1
+
+        lt_x = self.format_coordinate_value(command.x)
+        lt_y = self.format_coordinate_value(self.current_pen_position.y)
+
+        if add_debug_cmts:
+            self.points_code += f"// {str(command)}\n"
+        self.points_code += f"points.{point_name} = new Point({lt_x}, {lt_y})\n"
+
+        if add_debug_cmts:
+            self.path_code += f"\n    // inkex.paths.Horz: {str(command)}"
+        self.path_code += f"\n    .line(points.{point_name})"
+
+        self.current_pen_position = Point(lt_x, lt_y)
 
     def handle_vert(self, command: inkex.paths.vert):
-        pass
+        # Relative vertical line
+        add_debug_cmts = self.options.show_debug_comments == True
+
+        point_name = self.get_current_point_name()
+        self.point_counter += 1
+
+        lt_x = self.format_coordinate_value(self.current_pen_position.x)
+        lt_y = self.format_coordinate_value(self.current_pen_position.y + command.dy)
+
+        if add_debug_cmts:
+            self.points_code += f"// {str(command)}\n"
+        self.points_code += f"points.{point_name} = new Point({lt_x}, {lt_y})\n"
+
+        if add_debug_cmts:
+            self.path_code += f"\n    // inkex.paths.vert: {str(command)}"
+        self.path_code += f"\n    .line(points.{point_name})"
+
+        self.current_pen_position = Point(lt_x, lt_y)
 
     def handle_Vert(self, command: inkex.paths.Vert):
-        pass
+        # Absolute vertical line
+        add_debug_cmts = self.options.show_debug_comments == True
+
+        point_name = self.get_current_point_name()
+        self.point_counter += 1
+
+        lt_x = self.format_coordinate_value(self.current_pen_position.x)
+        lt_y = self.format_coordinate_value(command.y)
+
+        if add_debug_cmts:
+            self.points_code += f"// {str(command)}\n"
+        self.points_code += f"points.{point_name} = new Point({lt_x}, {lt_y})\n"
+
+        if add_debug_cmts:
+            self.path_code += f"\n    // inkex.paths.Vert: {str(command)}"
+        self.path_code += f"\n    .line(points.{point_name})"
+
+        self.current_pen_position = Point(lt_x, lt_y)
 
     def handle_zoneClose(self, command: inkex.paths.zoneClose):
         pass
