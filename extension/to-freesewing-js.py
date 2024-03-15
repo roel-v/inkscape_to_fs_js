@@ -13,20 +13,36 @@ def clean_name(string):
     return re.sub(r'\W|^(?=\d)', '_', string)
 
 class ToFreesewingJS(inkex.extensions.OutputExtension):
+    def __init__(self):
+        super().__init__()
+
+        self.dispatch_table = {
+            inkex.paths.move: self.handle_move,
+            inkex.paths.Move: self.handle_Move,
+            inkex.paths.curve: self.handle_curve,
+            inkex.paths.Curve: self.handle_Curve,
+            inkex.paths.horz: self.handle_horz,
+            inkex.paths.Horz: self.handle_Horz,
+            inkex.paths.vert: self.handle_vert,
+            inkex.paths.Vert: self.handle_Vert,
+            inkex.paths.zoneClose: self.handle_zoneClose,
+            inkex.paths.ZoneClose: self.handle_ZoneClose
+        }
+
     def add_arguments(self, pars):
         pars.add_argument("--tab", type=str, dest="what")
         pars.add_argument("--fp_precision", type=int, default=4)
         pars.add_argument("--show_debug_comments", type=inkex.Boolean)
 
-    def get_curve_point_names(self, id, point_counter):
-        ep_name = self.get_point_name(id, point_counter) + "_ep"
-        cp1_name = self.get_point_name(id, point_counter) + "_cp1"
-        cp2_name = self.get_point_name(id, point_counter) + "_cp2"
+    def get_current_curve_point_names(self):
+        ep_name = self.get_current_point_name() + "_ep"
+        cp1_name = self.get_current_point_name() + "_cp1"
+        cp2_name = self.get_current_point_name() + "_cp2"
 
         return (ep_name, cp1_name, cp2_name)
 
-    def get_point_name(self, id, point_counter):
-        return clean_name(f"{id}_p{point_counter}")
+    def get_current_point_name(self):
+        return clean_name(f"{self.current_element_id}_p{self.point_counter}")
 
     def format_coordinate_value(self, coord):
         fp = self.options.fp_precision
@@ -42,23 +58,152 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
 
         return final_value
 
-    def path_to_code(self, id: str, path: inkex.paths.PathCommand):
+    def default_handler(self, value):
+        self.msg(f"Unknown Inkex type: {type(value)}")
+
+    def handle_move(self, command: inkex.paths.move):
+        # Relative move
+        #  str(command) = "m 42.6289 138.544"
+
+        add_debug_cmts = self.options.show_debug_comments == True
+
+        point_name = self.get_current_point_name()
+        self.point_counter += 1
+
+        mt_x = self.format_coordinate_value(self.current_pen_position.x + command.dx)
+        mt_y = self.format_coordinate_value(self.current_pen_position.y + command.dy)
+
+        if add_debug_cmts:
+            self.points_code += f"// {str(command)}\n"
+        self.points_code += f"points.{point_name} = new Point({mt_x}, {mt_y})\n"
+
+        if add_debug_cmts:
+            self.path_code += f"\n    // inkex.paths.move: {str(command)}"
+        self.path_code += f"\n    .move(points.{point_name})"
+
+        self.current_pen_position = Point(mt_x, mt_y)
+
+    def handle_Move(self, command: inkex.paths.Move):
+        # Absolute move
+        #  str(command) = "M 42.6289 138.544"
+
+        add_debug_cmts = self.options.show_debug_comments == True
+
+        point_name = self.get_current_point_name()
+        self.point_counter += 1
+
+        mt_x = self.format_coordinate_value(command.x)
+        mt_y = self.format_coordinate_value(command.y)
+
+        if add_debug_cmts:
+            self.points_code += f"// {str(command)}\n"
+        self.points_code += f"points.{point_name} = new Point({mt_x}, {mt_y})\n"
+
+        if add_debug_cmts:
+            self.path_code += f"\n    // inkex.paths.Move: {str(command)}"
+        self.path_code += f"\n    .move(points.{point_name})"
+
+        self.current_pen_position = Point(mt_x, mt_y)
+
+    def handle_curve(self, command: inkex.paths.curve):
+        # Relative Bezier curve
+        # If we get here, the curve is a 'c' in SVG so using relative control point coordinates. This
+        # corresponds to the inkex.paths.curve class, 'curve' with a lowercase 'c'.
+
+        add_debug_cmts = self.options.show_debug_comments == True
+
+        ep_name, cp1_name, cp2_name = self.get_current_curve_point_names()
+
+        self.point_counter += 1
+
+        cp1_x = self.format_coordinate_value(self.current_pen_position.x + command.dx2)
+        cp1_y = self.format_coordinate_value(self.current_pen_position.y + command.dy2)
+        cp2_x = self.format_coordinate_value(self.current_pen_position.x + command.dx3)
+        cp2_y = self.format_coordinate_value(self.current_pen_position.y + command.dy3)
+        ep_x = self.format_coordinate_value(self.current_pen_position.x + command.dx4)
+        ep_y = self.format_coordinate_value(self.current_pen_position.y + command.dy4)
+
+        # Control points are relative but in FS always absolute, so we need to convert.
+        if add_debug_cmts:
+            self.points_code += f"// {str(command)}\n"
+        self.points_code += f"points.{cp1_name} = new Point({cp1_x}, {cp1_y})\n"
+        self.points_code += f"points.{cp2_name} = new Point({cp2_x}, {cp2_y})\n"
+        self.points_code += f"points.{ep_name} = new Point({ep_x}, {ep_y})\n"
+
+        # We can safely chain here, because there's always an m or M before this.
+        if add_debug_cmts:
+            self.path_code += f"\n    // inkex.paths.curve: {str(command)}"
+        self.path_code += f"\n    .curve("
+        self.path_code += f"\n        points.{cp1_name},"
+        self.path_code += f"\n        points.{cp2_name},"
+        self.path_code += f"\n        points.{ep_name}"
+        self.path_code += f"\n    )"
+
+        self.current_pen_position = Point(ep_x, ep_y)
+
+    def handle_Curve(self, command: inkex.paths.Curve):
+        # Absolute Bezier curve
+        # If we get here, the curve is a 'C' in SVG so using absolute control point coordinates. This
+        # corresponds to the inkex.paths.Curve class, 'Curve' with a uppercase 'C'.
+
+        add_debug_cmts = self.options.show_debug_comments == True
+
+        ep_name, cp1_name, cp2_name = self.get_current_curve_point_names()
+
+        self.point_counter += 1
+
+        cp1_x = self.format_coordinate_value(command.x2)
+        cp1_y = self.format_coordinate_value(command.y2)
+        cp2_x = self.format_coordinate_value(command.x3)
+        cp2_y = self.format_coordinate_value(command.y3)
+        ep_x = self.format_coordinate_value(command.x4)
+        ep_y = self.format_coordinate_value(command.y4)
+
+        if add_debug_cmts:
+            self.points_code += f"// {str(command)}\n"
+        self.points_code += f"points.{cp1_name} = new Point({cp1_x}, {cp1_y})\n"
+        self.points_code += f"points.{cp2_name} = new Point({cp2_x}, {cp2_y})\n"
+        self.points_code += f"points.{ep_name} = new Point({ep_x}, {ep_y})\n"
+
+        # We can safely chain here, because there's always an m or M before this.
+        if add_debug_cmts:
+            self.path_code += f"\n    // inkex.paths.Curve: {str(command)}"
+        self.path_code += f"\n    .curve("
+        self.path_code += f"\n        points.{cp1_name},"
+        self.path_code += f"\n        points.{cp2_name},"
+        self.path_code += f"\n        points.{ep_name}"
+        self.path_code += f"\n    )"
+
+        self.current_pen_position = Point(ep_x, ep_y)
+
+    def handle_horz(self, command: inkex.paths.horz):
+        pass
+
+    def handle_Horz(self, command: inkex.paths.Horz):
+        pass
+
+    def handle_vert(self, command: inkex.paths.vert):
+        pass
+
+    def handle_Vert(self, command: inkex.paths.Vert):
+        pass
+
+    def handle_zoneClose(self, command: inkex.paths.zoneClose):
+        pass
+
+    def handle_ZoneClose(self, command: inkex.paths.ZoneClose):
+        pass
+
+    def path_to_code(self, path: inkex.paths.PathCommand):
         """
         This function makes JS code that defines a list of points, and then a Path that combines those points.
         """
-        points_code = f"// Path: {id}\n"
-        path_code = f"paths.{id} = new Path()"
 
-        point_counter = 1
+        self.point_counter = 1
+        self.current_pen_position = Point(0, 0)
 
-        # For a simple path with three endpoints, str(command) looks like:
-        # m 42.6289 138.544
-        # c 26.9235 -17.6685 28.0984 36.3167 48.7989 39.8244
-        # c 22.6554 3.83889 64.7847 -23.5581 64.7847 -23.5581
-
-        current_pen_position = Point(0, 0)
-
-        add_debug_cmts = self.options.show_debug_comments == True
+        self.points_code = f"// Path: {self.current_element_id}\n"
+        self.path_code = "paths." + clean_name(self.current_element_id) + " = new Path()"
 
         for command in path:
             #self.msg(f"1: {command.__class__}")
@@ -66,121 +211,10 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
             # command is a subclass of type inkex.paths.PathCommand
             # See https://inkscape.gitlab.io/inkscape/doxygen-extensions/paths_8py_source.html .
 
-            if isinstance(command, inkex.paths.move):
-                # Relative move
-                #  str(command) = "m 42.6289 138.544"
+            handler = self.dispatch_table.get(type(command), self.default_handler)
+            handler(command)
 
-                point_name = self.get_point_name(id, point_counter)
-                point_counter += 1
-
-                mt_x = self.format_coordinate_value(current_pen_position.x + command.dx)
-                mt_y = self.format_coordinate_value(current_pen_position.y + command.dy)
-
-                if add_debug_cmts:
-                    points_code += f"// {str(command)}\n"
-                points_code += f"points.{point_name} = new Point({mt_x}, {mt_y})\n"
-
-                if add_debug_cmts:
-                    path_code += f"\n    // inkex.paths.move: {str(command)}"
-                path_code += f"\n    .move(points.{point_name})"
-
-                current_pen_position = Point(mt_x, mt_y)
-            if isinstance(command, inkex.paths.Move):
-                # Absolute move
-                #  str(command) = "M 42.6289 138.544"
-
-                point_name = self.get_point_name(id, point_counter)
-                point_counter += 1
-
-                mt_x = self.format_coordinate_value(command.x)
-                mt_y = self.format_coordinate_value(command.y)
-
-                if add_debug_cmts:
-                    points_code += f"// {str(command)}\n"
-                points_code += f"points.{point_name} = new Point({mt_x}, {mt_y})\n"
-
-                if add_debug_cmts:
-                    path_code += f"\n    // inkex.paths.Move: {str(command)}"
-                path_code += f"\n    .move(points.{point_name})"
-
-                current_pen_position = Point(mt_x, mt_y)
-            elif isinstance(command, inkex.paths.curve):
-                # Relative Bezier curve
-                # If we get here, the curve is a 'c' in SVG so using relative control point coordinates. This
-                # corresponds to the inkex.paths.curve class, 'curve' with a lowercase 'c'.
-
-                ep_name, cp1_name, cp2_name = self.get_curve_point_names(id, point_counter)
-
-                point_counter += 1
-
-                cp1_x = self.format_coordinate_value(current_pen_position.x + command.dx2)
-                cp1_y = self.format_coordinate_value(current_pen_position.y + command.dy2)
-                cp2_x = self.format_coordinate_value(current_pen_position.x + command.dx3)
-                cp2_y = self.format_coordinate_value(current_pen_position.y + command.dy3)
-                ep_x = self.format_coordinate_value(current_pen_position.x + command.dx4)
-                ep_y = self.format_coordinate_value(current_pen_position.y + command.dy4)
-
-                # Control points are relative but in FS always absolute, so we need to convert.
-                if add_debug_cmts:
-                    points_code += f"// {str(command)}\n"
-                points_code += f"points.{cp1_name} = new Point({cp1_x}, {cp1_y})\n"
-                points_code += f"points.{cp2_name} = new Point({cp2_x}, {cp2_y})\n"
-                points_code += f"points.{ep_name} = new Point({ep_x}, {ep_y})\n"
-
-                # We can safely chain here, because there's always an m or M before this.
-                if add_debug_cmts:
-                    path_code += f"\n    // inkex.paths.curve: {str(command)}"
-                path_code += f"\n    .curve("
-                path_code += f"\n        points.{cp1_name},"
-                path_code += f"\n        points.{cp2_name},"
-                path_code += f"\n        points.{ep_name}"
-                path_code += f"\n    )"
-
-                current_pen_position = Point(ep_x, ep_y)
-            elif isinstance(command, inkex.paths.Curve):
-                # Absolute Bezier curve
-                # If we get here, the curve is a 'C' in SVG so using absolute control point coordinates. This
-                # corresponds to the inkex.paths.Curve class, 'Curve' with a uppercase 'C'.
-
-                ep_name, cp1_name, cp2_name = self.get_curve_point_names(id, point_counter)
-
-                point_counter += 1
-
-                cp1_x = self.format_coordinate_value(command.x2)
-                cp1_y = self.format_coordinate_value(command.y2)
-                cp2_x = self.format_coordinate_value(command.x3)
-                cp2_y = self.format_coordinate_value(command.y3)
-                ep_x = self.format_coordinate_value(command.x4)
-                ep_y = self.format_coordinate_value(command.y4)
-
-                if add_debug_cmts:
-                    points_code += f"// {str(command)}\n"
-                points_code += f"points.{cp1_name} = new Point({cp1_x}, {cp1_y})\n"
-                points_code += f"points.{cp2_name} = new Point({cp2_x}, {cp2_y})\n"
-                points_code += f"points.{ep_name} = new Point({ep_x}, {ep_y})\n"
-
-                # We can safely chain here, because there's always an m or M before this.
-                if add_debug_cmts:
-                    path_code += f"\n    // inkex.paths.Curve: {str(command)}"
-                path_code += f"\n    .curve("
-                path_code += f"\n        points.{cp1_name},"
-                path_code += f"\n        points.{cp2_name},"
-                path_code += f"\n        points.{ep_name}"
-                path_code += f"\n    )"
-
-                current_pen_position = Point(ep_x, ep_y)
-
-        return points_code, path_code
-
-    def line_to_code(self, id: str, line: inkex.paths.PathCommand):
-        #paths.rect = new Path()
-        #    .move(points.topLeft)
-        #    .line(points.bottomLeft)
-        #    .line(points.bottomRight)
-        #    .line(points.topRight)
-        #    .line(points.topLeft)
-        #    .close()
-        pass
+        return True
 
     def save(self, stream):
         # Initialize a list to hold the IDs of line and path elements
@@ -198,12 +232,19 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
             if any(ancestor.get_id() in defs_ids for ancestor in element.iterancestors()):
                 continue
 
-            # Check if the element is a line or a path (Bézier curves included)
-            if isinstance(element, (inkex.PathElement, inkex.Line)):
+            # Process all known types, plus Line. But all known types are derived from inkex.PathElement. We process
+            # that manually now, maybe it's more elegant to also do that through the visitor pattern implemented through
+            # self.dispatch_table? Might get tricky because of the inheritance. Should check how isinstance() works
+            # exactly.
+            types_from_table = tuple(self.dispatch_table.keys())
+            types = types_from_table + (inkex.PathElement,)
+
+            if isinstance(element, types):
                 if isinstance(element, inkex.PathElement):
                     path = inkex.paths.Path(element.get('d'))
-                    points_code, path_code = self.path_to_code(element.get_id(), path)
-                    result_code += f"{points_code}\n{path_code}\n"
+                    self.current_element_id = element.get_id()
+                    result = self.path_to_code(path)
+                    result_code += f"{self.points_code}\n{self.path_code}\n"
 
                 if isinstance(element, inkex.Line):
                     self.msg(f"@todo {inkex.Line}")
