@@ -2,10 +2,15 @@ import inkex
 import inkex.paths
 from inkex import TextElement, PathElement
 
+import re
+
 class Point():
     def __init__(self, x, y):
         self.x = round(float(x))
         self.y = round(float(y))
+
+def clean_name(string):
+    return re.sub(r'\W|^(?=\d)', '_', string)
 
 class ToFreesewingJS(inkex.extensions.OutputExtension):
     def add_arguments(self, pars):
@@ -14,9 +19,9 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
         pars.add_argument("--show_debug_comments", type=inkex.Boolean)
 
     def get_point_names(self, id, point_counter):
-        ep_name = f"{id}_p{point_counter}_ep"
-        cp1_name = f"{id}_p{point_counter}_cp1"
-        cp2_name = f"{id}_p{point_counter}_cp2"
+        ep_name = clean_name(f"{id}_p{point_counter}_ep")
+        cp1_name = clean_name(f"{id}_p{point_counter}_cp1")
+        cp2_name = clean_name(f"{id}_p{point_counter}_cp2")
 
         return (ep_name, cp1_name, cp2_name)
 
@@ -62,7 +67,7 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
                 # Relative move
                 #  str(command) = "m 42.6289 138.544"
 
-                point_name = f"{id}_p{point_counter}"
+                point_name = clean_name(f"{id}_p{point_counter}")
                 point_counter += 1
 
                 mt_x = self.format_coordinate_value(current_pen_position.x + command.dx)
@@ -81,7 +86,7 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
                 # Absolute move
                 #  str(command) = "M 42.6289 138.544"
 
-                point_name = f"{id}_p{point_counter}"
+                point_name = clean_name(f"{id}_p{point_counter}")
                 point_counter += 1
 
                 mt_x = self.format_coordinate_value(command.x)
@@ -178,8 +183,18 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
         # Initialize a list to hold the IDs of line and path elements
         result_code = ""
 
+        # Get the root element of the SVG document
+        root = self.document.getroot()
+
+        # Find all <defs> elements and store their ids in a set for quick lookup
+        defs_ids = {element.get_id() for element in root.findall('.//defs', root.nsmap)}
+
         # Iterate over all elements in the SVG
-        for element in self.document.getroot().iter():
+        for element in root.iter():
+            # Skip elements that are children of <defs>
+            if any(ancestor.get_id() in defs_ids for ancestor in element.iterancestors()):
+                continue
+
             # Check if the element is a line or a path (Bézier curves included)
             if isinstance(element, (inkex.PathElement, inkex.Line)):
                 if isinstance(element, inkex.PathElement):
@@ -188,7 +203,7 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
                     result_code += f"{points_code}\n{path_code}\n"
 
                 if isinstance(element, inkex.Line):
-                    self.msg(f"{inkex.Line}")
+                    self.msg(f"@todo {inkex.Line}")
                     pass
 
         stream.write(result_code.encode('utf-8'))
