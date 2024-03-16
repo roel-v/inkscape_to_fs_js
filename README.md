@@ -78,6 +78,13 @@ Development notes
 
 Todo
 ====
-- Make a second pluging that initializes the current document to be a FS template. Insert a sample layer, add a metadata
+- Make a second plugin that initializes the current document to be a FS template. Insert a sample layer, add a metadata
   layer, ...
 - Convert markers and symbols somehow
+- Add option to force-overwrite index.mjs and the part definition mjs files.
+- Further split up the generated index.mjs and part definition code? Add generic 'hook' functions that allow for
+  customization so that they themselves can more easily be overwritten?
+- Add an option to export in a flatter directory structure. Needs some way to prevent name collisions. Or not and let
+  the user figure it out.
+- Add an option to export only paths, optionally from all layers. Would suit a more lightweight use case where you just
+  want to draw a part and paste it into an existing design manually.
