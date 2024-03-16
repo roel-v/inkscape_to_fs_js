@@ -419,13 +419,16 @@ class ToFreesewingJS(inkex.Effect):
 
         # Get metadata, if there is any.
         metadata_layer = root.xpath('//svg:g[@inkscape:groupmode="layer" and @inkscape:label="metadata"]', namespaces=inkex.NSS)
+        design_name = "newDesign"
         if len(metadata_layer) > 0:
-            name_element = metadata_layer[0].xpath('//svg:text[@inkscape:label="design-name"]', namespaces=inkex.NSS)
+            name_elements = metadata_layer[0].xpath('//svg:text[@inkscape:label="design-name"]', namespaces=inkex.NSS)
 
-            design_name = self.extract_text(name_element[0])
+            if len(name_element) > 0:
+                design_name = self.extract_text(name_element[0])
+            else:
+                self.msg("No text element with label 'design-name' found in layer 'metadata', using default design name of 'newDesign'.")
         else:
-            self.msg("No text element with label 'name' found in layer 'metadata', using default design name of 'newDesign'.")
-            design_name = "newDesign"
+            self.msg("No layer 'metadata' found in which to look for a text element with label 'design-name', using default design name of 'newDesign'.")
 
         # Extract all FS parts, which are layers (<g> element with inkscape:groupmode="layer" attribute) and need to
         # have inkscape:label="part: front" attributes, the values of which need to start with 'part:'.
