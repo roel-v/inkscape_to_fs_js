@@ -1,24 +1,25 @@
 <inkscape-extension xmlns="http://www.inkscape.org/namespace/inkscape/extension">
-  <name>To Freesewing JS</name>
+  <name>Export to Freesewing JS...</name>
   <id>org.freesewing.to-freesewing-js</id>
   <dependency type="extension">org.inkscape.output.svg.inkscape</dependency>
 
   <param name="tab" type="notebook">
     <page name="settings" gui-text="Settings">
+      <param name="output_dir" type="path" mode="folder" gui-text="Design directory:" />
       <param name="fp_precision" type="int" min="0" max="16" gui-text="Floating point precision:">4</param>
       <param name="show_debug_comments" type="bool" gui-text="Add extra comments on the source SVG structure to the generated code.">false</param>
     </page>
     <page name="help" gui-text="Help">
-      <label>This extension exports all paths in the document to Javascript code that is compatible with the freesewing.org API. See https://github.com/roel-v/inkscape_to_fs_js for more details..</label>
+      <label>This extension exports the design in the SVG to Javascript code that is compatible with the freesewing.org API. See https://github.com/roel-v/inkscape_to_fs_js for more details..</label>
     </page>
   </param>
 
-  <output>
-    <extension>.js</extension>
-    <mimetype>text/javascript</mimetype>
-    <filetypename>FreeSewing Path description (*.js)</filetypename>
-    <filetypetooltip>FreeSewing Path description code</filetypetooltip>
-  </output>
+  <effect needs-live-preview="false">
+    <object-type>all</object-type>
+    <effects-menu>
+      <submenu _name="FreeSewing" />
+    </effects-menu>
+  </effect>
 
   <script>
     <command location="inx" interpreter="python">to-freesewing-js.py</command>

@@ -2,17 +2,46 @@ import inkex
 import inkex.paths
 from inkex import TextElement, PathElement
 
-import re
+import sys, os, re
+
+lib_path = os.path.join(os.path.dirname(__file__), 'site-packages')
+sys.path.append(lib_path)
+
+from jinja2 import Environment, FileSystemLoader
 
 class Point():
     def __init__(self, x, y):
         self.x = round(float(x))
         self.y = round(float(y))
 
+class Part():
+    def __init__(self, name):
+        self.name = name
+        self.paths = []
+
+    def get_fs_name(self):
+        ''' Get filesystem name, i.e. get name in a way that is safe to use in filenames.
+        '''
+        return clean_name(self.name)
+
+class Path():
+    def __init__(self, path_id):
+        self.id = path_id
+        self.points_code = ''
+        self.path_code = ''
+
+    def get_fs_name(self):
+        return clean_name(self.id)
+
 def clean_name(string):
     return re.sub(r'\W|^(?=\d)', '_', string)
 
-class ToFreesewingJS(inkex.extensions.OutputExtension):
+def indent_filter(s, num_spaces=4):
+    indent = ' ' * num_spaces
+    return '\n'.join(indent + line for line in s.split('\n'))
+
+#class ToFreesewingJS(inkex.extensions.OutputExtension):
+class ToFreesewingJS(inkex.Effect):
     def __init__(self):
         super().__init__()
 
@@ -31,6 +60,7 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
 
     def add_arguments(self, pars):
         pars.add_argument("--tab", type=str, dest="what")
+        pars.add_argument("--output_dir", type=str)
         pars.add_argument("--fp_precision", type=int, default=4)
         pars.add_argument("--show_debug_comments", type=inkex.Boolean)
 
@@ -59,7 +89,8 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
         return final_value
 
     def default_handler(self, value):
-        self.msg(f"Unknown Inkex type: {type(value)}")
+        #self.msg(f"Unknown Inkex type: {type(value)}")
+        pass
 
     def set_current_pen(self, point_name, x, y):
         self.current_pen_point = point_name
@@ -306,41 +337,157 @@ class ToFreesewingJS(inkex.extensions.OutputExtension):
 
         return True
 
-    def save(self, stream):
+    def render_template(self, template_name: str, output_filename: str, force_overwrite: bool, data: dict):
+        if os.path.isfile(output_filename) and force_overwrite == False:
+            return
+
+        template_dir = 'templates'
+        env = Environment(loader=FileSystemLoader(template_dir))
+        env.filters['indent'] = indent_filter
+        tpl = env.get_template(template_name)
+        rendered_output = tpl.render(data)
+        with open(output_filename, 'w') as file:
+            file.write(rendered_output)
+
+    def extract_text(self, text_element):
+        # Start with the text directly in the <text> element, if any
+        combined_text = (text_element.text or "").strip()
+
+        # Add the text from any <tspan> children, if they exist
+        for tspan in text_element.findall('{http://www.w3.org/2000/svg}tspan'):
+            combined_text += (tspan.text or "").strip()
+
+        # Also consider any tail text following <tspan> elements
+        for tspan in text_element.getchildren():
+            if tspan.tail is not None:
+                combined_text += tspan.tail.strip()
+
+        return combined_text
+
+    #def save(self, stream):
+    def effect(self):
         # Initialize a list to hold the IDs of line and path elements
         result_code = ""
 
-        # Get the root element of the SVG document
+        # Get the root element of the SVG document - type xml.etree.ElementTree.ElementTree
         root = self.document.getroot()
 
         # Find all <defs> elements and store their ids in a set for quick lookup
-        defs_ids = {element.get_id() for element in root.findall('.//defs', root.nsmap)}
+        #defs_ids = { element.get_id() for element in root.findall('.//defs', root.nsmap) }
 
-        # Iterate over all elements in the SVG
-        for element in root.iter():
+        # Get metadata, if there is any.
+        metadata_layer = root.xpath('//svg:g[@inkscape:groupmode="layer" and @inkscape:label="metadata"]', namespaces=inkex.NSS)
+        if len(metadata_layer) > 0:
+            name_element = metadata_layer[0].xpath('//svg:text[@inkscape:label="design-name"]', namespaces=inkex.NSS)
+
+            design_name = self.extract_text(name_element[0])
+        else:
+            self.msg("No text element with label 'name' found in layer 'metadata', using default design name of 'newDesign'.")
+            design_name = "newDesign"
+
+        # Extract all FS parts, which are layers (<g> element with inkscape:groupmode="layer" attribute) and need to
+        # have inkscape:label="part: front" attributes, the values of which need to start with 'part:'.
+        parts = []
+        svg_layers = root.xpath('//svg:g[@inkscape:groupmode="layer"]', namespaces=inkex.NSS)
+        for layer in svg_layers:
             # Skip elements that are children of <defs>
-            if any(ancestor.get_id() in defs_ids for ancestor in element.iterancestors()):
+            #if any(ancestor.get_id() in defs_ids for ancestor in element.iterancestors()):
+            #    continue
+
+            #layers = self.get_layers()
+            label_attrib_name = f"{{{layer.nsmap['inkscape']}}}label"
+            if label_attrib_name not in layer.attrib:
                 continue
+
+            layer_label = layer.attrib[label_attrib_name]
+            str_parts = re.split(r'(?i)part:', layer_label, maxsplit=1)
+            if len(str_parts) <= 1:
+                continue
+            part_name = str_parts[1].strip()
+            #self.msg(f"Found Freeswing part layer with name {part_name}")
+
+            current_part = Part(part_name)
+            parts.append(current_part)
 
             # Process all known types, plus Line. But all known types are derived from inkex.PathElement. We process
             # that manually now, maybe it's more elegant to also do that through the visitor pattern implemented through
             # self.dispatch_table? Might get tricky because of the inheritance. Should check how isinstance() works
             # exactly.
             types_from_table = tuple(self.dispatch_table.keys())
-            types = types_from_table + (inkex.PathElement,)
+            other_types = (inkex.PathElement, inkex.Line, inkex.Rectangle)
+            types = types_from_table + other_types
 
-            if isinstance(element, types):
-                if isinstance(element, inkex.PathElement):
-                    path = inkex.paths.Path(element.get('d'))
-                    self.current_element_id = element.get_id()
-                    result = self.path_to_code(path)
-                    result_code += f"{self.points_code}\n{self.path_code}\n"
+            for element in layer.iter():
+                if isinstance(element, types):
+                    if isinstance(element, inkex.PathElement):
 
-                if isinstance(element, inkex.Line):
-                    self.msg(f"@todo {inkex.Line}")
-                    pass
+                        path = inkex.paths.Path(element.get('d'))
+                        self.current_element_id = element.get_id()
+                        result = self.path_to_code(path)
+                        #result_code += f"{self.points_code}\n{self.path_code}\n"
 
-        stream.write(result_code.encode('utf-8'))
+                        new_path = Path(self.current_element_id)
+                        new_path.points_code = self.points_code
+                        new_path.path_code = self.path_code
+
+                        current_part.paths.append(new_path)
+
+                    #if isinstance(element, inkex.Line):
+                    #    self.msg(f"@todo {inkex.Line}")
+                    #    pass
+
+                    #if isinstance(element, inkex.Rectangle):
+                    #    self.msg(f"@todo {inkex.Rectangle}")
+                    #    pass
+
+        # Write out result files.
+
+        # @todo Initialize directory with i18n, src subdirs
+
+        output_dir = self.options.output_dir
+
+        os.makedirs(f"{output_dir}", exist_ok=True)
+        os.makedirs(f"{output_dir}\\src", exist_ok=True)
+        os.makedirs(f"{output_dir}\\i18n", exist_ok=True)
+        os.makedirs(f"{output_dir}\\src\\parts", exist_ok=True)
+
+        #   index.mjs, the design itself which ties together the parts. Only when it doesn't exist already.
+        self.render_template('index.mjs.tpl', os.path.join(output_dir, "src", "index.mjs", False,
+            {
+                'design_name' : design_name,
+                'parts': parts
+            }
+        )
+
+        # All individual parts. Only when they don't exist already.
+        for part in parts:
+            part_fs_name = part.get_fs_name()
+            os.makedirs(os.path.join(output_dir, "src", "parts", part_fs_name), exist_ok=True)
+
+            # The part definition
+            self.render_template('part.mjs.tpl', os.path.join(output_dir, "src",  "parts", part_fs_name, f"{part_fs_name}.mjs"), False,
+                {
+                    'design_name' : design_name,
+                    'part_name' : part.name,
+                    'paths' : part.paths,
+                }
+            )
+
+            # The individual path code fragments. Overwrite.
+            for path in part.paths:
+                path_fs_name = path.get_fs_name()
+                os.makedirs(os.path.join(output_dir, "src", "parts", part_fs_name, "paths"), exist_ok=True)
+
+                self.render_template('path.mjs.tpl', os.path.join(output_dir, "src", "parts", part_fs_name, "paths", f"draft_{path_fs_name}.mjs"), True,
+                    {
+                        'path_fs_name' : path_fs_name,
+                        'points_code' : path.points_code,
+                        'path_code' :  path.path_code,
+                    }
+                )
+
+
+        #stream.write(result_code.encode('utf-8'))
 
 if __name__ == '__main__':
     ToFreesewingJS().run()
