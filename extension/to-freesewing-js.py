@@ -55,7 +55,9 @@ class ToFreesewingJS(inkex.Effect):
             inkex.paths.vert: self.handle_vert,
             inkex.paths.Vert: self.handle_Vert,
             inkex.paths.zoneClose: self.handle_zoneClose,
-            inkex.paths.ZoneClose: self.handle_ZoneClose
+            inkex.paths.ZoneClose: self.handle_ZoneClose,
+            inkex.paths.line: self.handle_line,
+            inkex.paths.Line: self.handle_Line
         }
 
     def add_arguments(self, pars):
@@ -89,7 +91,7 @@ class ToFreesewingJS(inkex.Effect):
         return final_value
 
     def default_handler(self, value):
-        #self.msg(f"Unknown Inkex type: {type(value)}")
+        self.msg(f"Unknown Inkex type: {type(value)}")
         pass
 
     def set_current_pen(self, point_name, x, y):
@@ -309,6 +311,46 @@ class ToFreesewingJS(inkex.Effect):
     def handle_ZoneClose(self, command: inkex.paths.ZoneClose):
         self.do_close(command, "Zone")
 
+    def handle_line(self, command: inkex.paths.line):
+        # Relative line
+        add_debug_cmts = self.options.show_debug_comments == True
+
+        point_name = self.get_current_point_name()
+        self.point_counter += 1
+
+        lt_x = self.format_coordinate_value(self.current_pen_position.x + command.dx)
+        lt_y = self.format_coordinate_value(self.current_pen_position.y + command.dy)
+
+        if add_debug_cmts:
+            self.points_code += f"// {str(command)}\n"
+        self.points_code += f"points.{point_name} = new Point({lt_x}, {lt_y})\n"
+
+        if add_debug_cmts:
+            self.path_code += f"\n    // inkex.paths.line: {str(command)}"
+        self.path_code += f"\n    .line(points.{point_name})"
+
+        self.set_current_pen(point_name, lt_x, lt_y)
+
+    def handle_Line(self, command: inkex.paths.Line):
+        # Absolute line
+        add_debug_cmts = self.options.show_debug_comments == True
+
+        point_name = self.get_current_point_name()
+        self.point_counter += 1
+
+        lt_x = self.format_coordinate_value(command.x)
+        lt_y = self.format_coordinate_value(command.y)
+
+        if add_debug_cmts:
+            self.points_code += f"// {str(command)}\n"
+        self.points_code += f"points.{point_name} = new Point({lt_x}, {lt_y})\n"
+
+        if add_debug_cmts:
+            self.path_code += f"\n    // inkex.paths.Line: {str(command)}"
+        self.path_code += f"\n    .line(points.{point_name})"
+
+        self.set_current_pen(point_name, lt_x, lt_y)
+
     def path_to_code(self, path: inkex.paths.PathCommand):
         """
         This function makes JS code that defines a list of points, and then a Path that combines those points.
@@ -452,7 +494,7 @@ class ToFreesewingJS(inkex.Effect):
         os.makedirs(f"{output_dir}\\src\\parts", exist_ok=True)
 
         #   index.mjs, the design itself which ties together the parts. Only when it doesn't exist already.
-        self.render_template('index.mjs.tpl', os.path.join(output_dir, "src", "index.mjs", False,
+        self.render_template('index.mjs.tpl', os.path.join(output_dir, "src", "index.mjs"), False,
             {
                 'design_name' : design_name,
                 'parts': parts
