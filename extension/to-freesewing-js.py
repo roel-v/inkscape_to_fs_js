@@ -3,6 +3,7 @@ import inkex.paths
 from inkex import TextElement, PathElement
 
 import sys, os, re
+import enum
 
 lib_path = os.path.join(os.path.dirname(__file__), 'site-packages')
 sys.path.append(lib_path)
@@ -40,6 +41,10 @@ def indent_filter(s, num_spaces=4):
     indent = ' ' * num_spaces
     return '\n'.join(indent + line for line in s.split('\n'))
 
+class FileExistsBehaviour(enum.Enum):
+    KEEP_EXISTING = enum.auto()
+    FORCE_OVERWRITE = enum.auto()
+
 #class ToFreesewingJS(inkex.extensions.OutputExtension):
 class ToFreesewingJS(inkex.Effect):
     def __init__(self):
@@ -63,6 +68,7 @@ class ToFreesewingJS(inkex.Effect):
     def add_arguments(self, pars):
         pars.add_argument("--tab", type=str, dest="what")
         pars.add_argument("--output_dir", type=str)
+        pars.add_argument("--export_what", type=str)
         pars.add_argument("--fp_precision", type=int, default=4)
         pars.add_argument("--show_debug_comments", type=inkex.Boolean)
 
@@ -379,7 +385,7 @@ class ToFreesewingJS(inkex.Effect):
 
         return True
 
-    def render_template(self, template_name: str, output_filename: str, force_overwrite: bool, data: dict):
+    def render_template(self, template_name: str, output_filename: str, force_overwrite: FileExistsBehaviour, data: dict):
         if os.path.isfile(output_filename) and force_overwrite == False:
             return
 
@@ -406,33 +412,71 @@ class ToFreesewingJS(inkex.Effect):
 
         return combined_text
 
-    #def save(self, stream):
-    def effect(self):
-        # Initialize a list to hold the IDs of line and path elements
-        result_code = ""
+    def write_results(self, design_name, parts):
+        output_dir = self.options.output_dir
 
-        # Get the root element of the SVG document - type xml.etree.ElementTree.ElementTree
-        root = self.document.getroot()
+        os.makedirs(f"{output_dir}", exist_ok=True)
+        os.makedirs(f"{output_dir}\\src", exist_ok=True)
+        os.makedirs(f"{output_dir}\\i18n", exist_ok=True)
+        os.makedirs(f"{output_dir}\\src\\parts", exist_ok=True)
 
-        # Find all <defs> elements and store their ids in a set for quick lookup
-        #defs_ids = { element.get_id() for element in root.findall('.//defs', root.nsmap) }
+        # index.mjs, the design itself which ties together the parts. Only when it doesn't exist already.
+        self.render_template('index.mjs.tpl', os.path.join(output_dir, "src", "index.mjs"), FileExistsBehaviour.KEEP_EXISTING,
+            {
+                'design_name' : design_name,
+                'parts': parts
+            }
+        )
 
-        # Get metadata, if there is any.
+        # All individual parts. Only when they don't exist already.
+        for part in parts:
+            part_fs_name = part.get_fs_name()
+            os.makedirs(os.path.join(output_dir, "src", "parts", part_fs_name), exist_ok=True)
+
+            # The part definition
+            self.render_template('part.mjs.tpl', os.path.join(output_dir, "src",  "parts", part_fs_name, f"{part_fs_name}.mjs"), FileExistsBehaviour.KEEP_EXISTING,
+                {
+                    'design_name' : design_name,
+                    'part_name' : part.name,
+                    'paths' : part.paths,
+                }
+            )
+
+            # The individual path code fragments. Overwrite.
+            for path in part.paths:
+                path_fs_name = path.get_fs_name()
+                os.makedirs(os.path.join(output_dir, "src", "parts", part_fs_name, "paths"), exist_ok=True)
+
+                self.render_template('path.mjs.tpl', os.path.join(output_dir, "src", "parts", part_fs_name, "paths", f"draft_{path_fs_name}.mjs"), FileExistsBehaviour.FORCE_OVERWRITE,
+                    {
+                        'path_fs_name' : path_fs_name,
+                        'points_code' : path.points_code,
+                        'path_code' :  path.path_code,
+                    }
+                )
+
+        return True
+
+    def parse_metadata(self, root):
         metadata_layer = root.xpath('//svg:g[@inkscape:groupmode="layer" and @inkscape:label="metadata"]', namespaces=inkex.NSS)
+        # @todo Use name of document as default
         design_name = "newDesign"
         if len(metadata_layer) > 0:
             name_elements = metadata_layer[0].xpath('//svg:text[@inkscape:label="design-name"]', namespaces=inkex.NSS)
 
-            if len(name_element) > 0:
-                design_name = self.extract_text(name_element[0])
+            if len(name_elements) > 0:
+                design_name = self.extract_text(name_elements[0])
             else:
                 self.msg("No text element with label 'design-name' found in layer 'metadata', using default design name of 'newDesign'.")
         else:
             self.msg("No layer 'metadata' found in which to look for a text element with label 'design-name', using default design name of 'newDesign'.")
 
+        return (design_name,)
+
+    def extract_parts(self, design_name, root):
         # Extract all FS parts, which are layers (<g> element with inkscape:groupmode="layer" attribute) and need to
         # have inkscape:label="part: front" attributes, the values of which need to start with 'part:'.
-        parts = []
+        parts = [] # return value
         svg_layers = root.xpath('//svg:g[@inkscape:groupmode="layer"]', namespaces=inkex.NSS)
         for layer in svg_layers:
             # Skip elements that are children of <defs>
@@ -469,7 +513,6 @@ class ToFreesewingJS(inkex.Effect):
                         path = inkex.paths.Path(element.get('d'))
                         self.current_element_id = element.get_id()
                         result = self.path_to_code(path)
-                        #result_code += f"{self.points_code}\n{self.path_code}\n"
 
                         new_path = Path(self.current_element_id)
                         new_path.points_code = self.points_code
@@ -485,54 +528,23 @@ class ToFreesewingJS(inkex.Effect):
                     #    self.msg(f"@todo {inkex.Rectangle}")
                     #    pass
 
+        return parts
+
+    def effect(self):
+        # Get the root element of the SVG document - type xml.etree.ElementTree.ElementTree
+        root = self.document.getroot()
+
+        # Find all <defs> elements and store their ids in a set for quick lookup
+        #defs_ids = { element.get_id() for element in root.findall('.//defs', root.nsmap) }
+
+        # Get metadata, if there is any.
+
+        design_name, *placeholder = self.parse_metadata(root)
+
+        parts = self.extract_parts(design_name, root)
+
         # Write out result files.
-
-        # @todo Initialize directory with i18n, src subdirs
-
-        output_dir = self.options.output_dir
-
-        os.makedirs(f"{output_dir}", exist_ok=True)
-        os.makedirs(f"{output_dir}\\src", exist_ok=True)
-        os.makedirs(f"{output_dir}\\i18n", exist_ok=True)
-        os.makedirs(f"{output_dir}\\src\\parts", exist_ok=True)
-
-        #   index.mjs, the design itself which ties together the parts. Only when it doesn't exist already.
-        self.render_template('index.mjs.tpl', os.path.join(output_dir, "src", "index.mjs"), False,
-            {
-                'design_name' : design_name,
-                'parts': parts
-            }
-        )
-
-        # All individual parts. Only when they don't exist already.
-        for part in parts:
-            part_fs_name = part.get_fs_name()
-            os.makedirs(os.path.join(output_dir, "src", "parts", part_fs_name), exist_ok=True)
-
-            # The part definition
-            self.render_template('part.mjs.tpl', os.path.join(output_dir, "src",  "parts", part_fs_name, f"{part_fs_name}.mjs"), False,
-                {
-                    'design_name' : design_name,
-                    'part_name' : part.name,
-                    'paths' : part.paths,
-                }
-            )
-
-            # The individual path code fragments. Overwrite.
-            for path in part.paths:
-                path_fs_name = path.get_fs_name()
-                os.makedirs(os.path.join(output_dir, "src", "parts", part_fs_name, "paths"), exist_ok=True)
-
-                self.render_template('path.mjs.tpl', os.path.join(output_dir, "src", "parts", part_fs_name, "paths", f"draft_{path_fs_name}.mjs"), True,
-                    {
-                        'path_fs_name' : path_fs_name,
-                        'points_code' : path.points_code,
-                        'path_code' :  path.path_code,
-                    }
-                )
-
-
-        #stream.write(result_code.encode('utf-8'))
+        self.write_results(design_name, parts)
 
 if __name__ == '__main__':
     ToFreesewingJS().run()
