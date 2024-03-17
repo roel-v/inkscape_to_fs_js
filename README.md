@@ -35,8 +35,21 @@ in your SVG make up what parts, what is the name of the design etc. How you let 
   name for your part. So you 'define' a part called 'back' by putting in a layer called 'part: back' and then putting
   all lines and curves that make up the shape of this part in that layer.
 
+- The part names are derived from whatever is after the 'part:' in the layer's Label, as described above; the individual
+  path names however are derived from their ID. You may want to change the ID to be the same as the Label for your
+  paths, as this will make it easier to find back in the code what paths you're looking at and to make the link between
+  what you see in your SVG in Inkscape and what you see in FreeSewing. However, these ID's have to be unique, and you
+  will have to manage their names manually. So you can't have a layer with ID 'front' and then also have a path inside
+  that layer with that same ID 'front'. You'll likely want to name only your path 'front', as that is what will show up
+  in your generated code. You still may want to give your layer a descriptive ID though, say 'layer\_front', just for
+  consistency and finding your way around easily.
+
+  This naming is not important from a technical point of view, it will work regardsless of the
+  path being called 'path1' or 'front'. But it is best practice to have good data hygiene and use accurate and
+  descriptive ID's for your paths, as these will translate into accurate and descriptive variable names in your
+  FreeSewing code. Other people and your future self will thank you.
+
 - Path styling is ignored. So what color, line style etc. you use for your paths is irrelevant for the generated code.
-  If you want to add things like this 
 
 What is generated
 -----------------
