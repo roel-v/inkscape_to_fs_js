@@ -106,7 +106,7 @@ Output modes
 Example usage
 =============
 To illustrate how all this works, this extension comes with a sample file that contains the world's shittiest shirt
-design in test_svgs\A0_full_design.svg . If you open this file in Inkscape, you'll see the layer setup, the 'metadata'
+design in example\_svgs\examplar\_shirt.svg . If you open this file in Inkscape, you'll see the layer setup, the 'metadata'
 layer and the text element with id 'design-name' to set the name of the design and so on. Run the extension with this
 test file and examine the output to get a feel for how things work.
 
@@ -133,8 +133,6 @@ Todo
 - Add an option to export in a flatter directory structure. Needs some way to prevent name collisions. Or not and let
   the user figure it out.
 - Add the .class('fabric') stuff somehow from path properties.
-- Rename A0_full_design.svg to something that makes more sense, and check all the other test SVG's that they use the
-  right layer names.
 - Clean up newline generation in generated point/path code; right now where there are newlines at the start/end of
   blocks isn't perfectly consistent. Also come up with a way to specify how indentation is generated, and make that
   consistent throughout the templates.

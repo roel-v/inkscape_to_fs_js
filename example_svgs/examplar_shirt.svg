@@ -26,7 +26,7 @@
      inkscape:zoom="0.1964904"
      inkscape:cx="2157.8662"
      inkscape:cy="2249.4738"
-     inkscape:current-layer="layer3" />
+     inkscape:current-layer="layer1" />
   <defs
      id="defs1">
     <marker
@@ -188,7 +188,7 @@
     <path
        style="fill:none;stroke:#000000;stroke-width:0.942656;stroke-opacity:1"
        d="M 805.22168,2020.0545 H 1820.6839 v -875.8361 l 279.2521,186.1681 190.3991,-211.5546 -482.3445,-304.63866 c 0,0 -284.3301,3.12677 -319.4475,4.2311 -69.1042,197.83386 -330.0738,249.88516 -492.92223,0 -2.9325,-8.01782 -342.71849,0 -342.71849,0 l -393.49156,308.86976 203.09241,203.0924 317.33195,-262.3277 z"
-       id="path2"
+       id="front"
        sodipodi:nodetypes="ccccccccccccc"
        inkscape:label="front" />
   </g>
