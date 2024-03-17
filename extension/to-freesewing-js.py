@@ -9,6 +9,7 @@ lib_path = os.path.join(os.path.dirname(__file__), 'site-packages')
 sys.path.append(lib_path)
 
 from jinja2 import Environment, FileSystemLoader
+import pyperclip
 
 class Point():
     def __init__(self, x, y):
@@ -45,7 +46,6 @@ class FileExistsBehaviour(enum.Enum):
     KEEP_EXISTING = enum.auto()
     FORCE_OVERWRITE = enum.auto()
 
-#class ToFreesewingJS(inkex.extensions.OutputExtension):
 class ToFreesewingJS(inkex.Effect):
     def __init__(self):
         super().__init__()
@@ -360,8 +360,10 @@ class ToFreesewingJS(inkex.Effect):
     def path_to_code(self, path: inkex.paths.PathCommand):
         """
         This function makes JS code that defines a list of points, and then a Path that combines those points.
+        It only returns True or False for success or failure. The actual results are stored in self.points_code
+        and self.path_code.
+        Along the way it keeps state in various member variables, too.
         """
-
         self.point_counter = 1
         self.current_pen_position = Point(0, 0)
 
@@ -473,17 +475,49 @@ class ToFreesewingJS(inkex.Effect):
 
         return (design_name,)
 
+    def extract_paths(self, root_element):
+        # Looks for 'paths' inside the give root_element.
+        # Processes all known inkex.paths types, plus Line. But all known types are derived from inkex.PathElement. We
+        # process that manually now, maybe it's more elegant to also do that through the visitor pattern implemented
+        # through self.dispatch_table? Might get tricky because of the inheritance. Should check how isinstance() works
+        # exactly, how it deals with types that have the same parent up graph.
+        types_from_table = tuple(self.dispatch_table.keys())
+        other_types = (inkex.PathElement, inkex.Line, inkex.Rectangle)
+        types = types_from_table + other_types
+
+        paths = [] # return value
+
+        for element in root_element.iter():
+            if isinstance(element, types):
+                if isinstance(element, inkex.PathElement):
+                    path = inkex.paths.Path(element.get('d'))
+                    self.current_element_id = element.get_id()
+                    if not self.path_to_code(path):
+                        self.msg("path_to_code failed. Unsure what to do. Probably critical bug.")
+                        continue
+
+                    new_path = Path(self.current_element_id)
+                    new_path.points_code = self.points_code
+                    new_path.path_code = self.path_code
+
+                    paths.append(new_path)
+
+                #if isinstance(element, inkex.Line):
+                #    self.msg(f"@todo {inkex.Line}")
+                #    pass
+
+                #if isinstance(element, inkex.Rectangle):
+                #    self.msg(f"@todo {inkex.Rectangle}")
+                #    pass
+
+        return paths
+
     def extract_parts(self, design_name, root):
         # Extract all FS parts, which are layers (<g> element with inkscape:groupmode="layer" attribute) and need to
         # have inkscape:label="part: front" attributes, the values of which need to start with 'part:'.
         parts = [] # return value
         svg_layers = root.xpath('//svg:g[@inkscape:groupmode="layer"]', namespaces=inkex.NSS)
         for layer in svg_layers:
-            # Skip elements that are children of <defs>
-            #if any(ancestor.get_id() in defs_ids for ancestor in element.iterancestors()):
-            #    continue
-
-            #layers = self.get_layers()
             label_attrib_name = f"{{{layer.nsmap['inkscape']}}}label"
             if label_attrib_name not in layer.attrib:
                 continue
@@ -495,56 +529,50 @@ class ToFreesewingJS(inkex.Effect):
             part_name = str_parts[1].strip()
             #self.msg(f"Found Freeswing part layer with name {part_name}")
 
-            current_part = Part(part_name)
-            parts.append(current_part)
-
-            # Process all known types, plus Line. But all known types are derived from inkex.PathElement. We process
-            # that manually now, maybe it's more elegant to also do that through the visitor pattern implemented through
-            # self.dispatch_table? Might get tricky because of the inheritance. Should check how isinstance() works
-            # exactly.
-            types_from_table = tuple(self.dispatch_table.keys())
-            other_types = (inkex.PathElement, inkex.Line, inkex.Rectangle)
-            types = types_from_table + other_types
-
-            for element in layer.iter():
-                if isinstance(element, types):
-                    if isinstance(element, inkex.PathElement):
-
-                        path = inkex.paths.Path(element.get('d'))
-                        self.current_element_id = element.get_id()
-                        result = self.path_to_code(path)
-
-                        new_path = Path(self.current_element_id)
-                        new_path.points_code = self.points_code
-                        new_path.path_code = self.path_code
-
-                        current_part.paths.append(new_path)
-
-                    #if isinstance(element, inkex.Line):
-                    #    self.msg(f"@todo {inkex.Line}")
-                    #    pass
-
-                    #if isinstance(element, inkex.Rectangle):
-                    #    self.msg(f"@todo {inkex.Rectangle}")
-                    #    pass
+            new_part = Part(part_name)
+            new_part.paths = self.extract_paths(layer)
+            parts.append(new_part)
 
         return parts
+
+    def extract_code_for_selection(self, root):
+        selection = self.svg.selection
+        points_code = ""
+        path_code = ""
+
+        for element_id, element in selection.items():
+            paths = self.extract_paths(element)
+            for path in paths:
+                points_code += f"{path.points_code}\n"
+                path_code += f"{path.path_code}\n"
+
+        return f"{points_code}\n{path_code}\n"
+
+    def to_clipboard(self, path_code):
+        pyperclip.copy(path_code)
 
     def effect(self):
         # Get the root element of the SVG document - type xml.etree.ElementTree.ElementTree
         root = self.document.getroot()
 
-        # Find all <defs> elements and store their ids in a set for quick lookup
-        #defs_ids = { element.get_id() for element in root.findall('.//defs', root.nsmap) }
-
         # Get metadata, if there is any.
 
         design_name, *placeholder = self.parse_metadata(root)
 
-        parts = self.extract_parts(design_name, root)
+        # What to do?
+        if self.options.export_what == "all":
+            # Derive part definitions from layer structure.
+            parts = self.extract_parts(design_name, root)
 
-        # Write out result files.
-        self.write_results(design_name, parts)
+            # Write out result files.
+            self.write_results(design_name, parts)
+        elif self.options.export_what == "selection":
+            code = self.extract_code_for_selection(root)
+
+            if code.strip() == "":
+                self.msg("Nothing selected or selected objects aren't paths that can be converted to code.")
+            else:
+                self.to_clipboard(code)
 
 if __name__ == '__main__':
     ToFreesewingJS().run()

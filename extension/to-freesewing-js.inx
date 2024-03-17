@@ -6,6 +6,10 @@
   <param name="tab" type="notebook">
     <page name="settings" gui-text="Settings">
       <param name="output_dir" type="path" mode="folder" gui-text="Design directory:" />
+      <param name="export_what" type="enum" gui-text="Export what:" indent="1">
+        <item value="all">All, as a complete design</item>
+        <item value="selection">Selection, path to clipboard</item>
+      </param>
       <param name="fp_precision" type="int" min="0" max="16" gui-text="Floating point precision:">4</param>
       <param name="show_debug_comments" type="bool" gui-text="Add extra comments on the source SVG structure to the generated code.">false</param>
     </page>
