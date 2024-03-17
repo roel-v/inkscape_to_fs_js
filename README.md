@@ -132,8 +132,6 @@ Todo
   customization so that they themselves can more easily be overwritten?
 - Add an option to export in a flatter directory structure. Needs some way to prevent name collisions. Or not and let
   the user figure it out.
-- Add an option to export only paths, optionally from all layers. Would suit a more lightweight use case where you just
-  want to draw a part and paste it into an existing design manually.
 - Add the .class('fabric') stuff somehow from path properties.
 - Rename A0_full_design.svg to something that makes more sense, and check all the other test SVG's that they use the
   right layer names.
