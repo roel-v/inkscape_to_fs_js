@@ -1,8 +1,10 @@
 This is an extension for Inkscape that will export the document's SVG to Javascript code to reproduce the document's
 design as a [Freesewing](http://freesewing.org) design, using the the FreeSewing Javascript API. This is a convenience
-tool to digitize sewing patterns. Trace or design them in Inkscape, export using this tool, then copy/paste the output
-to your Freesewing design's draft() method. You will need to fix up coordinates to make them use Freesewing measurements
-manually, of course.
+tool to digitize sewing patterns. Trace or design them in Inkscape, export using this extensions, then copy/paste the output
+to your Freesewing design's draft() method or have this extension generate the complete design code structure for you.
+You will need to fix up coordinates to make them use Freesewing measurements manually, of course; this is not and likely
+never will be a complete replacement for programming a Freesewing design. Most notably, support for including
+measurements in your Inkscape design is very limited.
 
 Installation
 ============
@@ -11,7 +13,7 @@ Installation
 - Extract the zip somewhere
 - Make a directory called 'to-freesewing-js' in your Inkscape extensions path. You can find out where that is by looking
   (in Inkscape) under Edit/Preferences/System/User extensions.
-- Copy the contents of the directory 'extension' to this directory you just made.
+- Copy the contents of the directory 'extension' in what you just unzipped to the directory you just made.
 - You will need to restart Inkscape (if you still have it open) before the new extension is picked up.
 - Start Inkscape. Under 'Extensions', you will see a menu called 'FreeSewing', which has an entry 'Export to Freesewing
   JS...'.
@@ -39,9 +41,22 @@ in your SVG make up what parts, what is the name of the design etc. How you let 
 What is generated
 -----------------
 
-When you run the extension, it will let you select a design directory. Choose the root directory of your design there;
-you'll need to have made the design first through the regular methods as documented in the Freesewing documentation.
-When you click 'Apply', a number of files are written to that directory:
+When you run the extension from the 'Extensions' menu under 'FreeSewing', you'll see a dialog that has a dropdown box
+where you can choose 'Export what'. What you select here, depends on how the extension works. If you select 'All, as a
+complete design', it will generate a complete design, including the design definition, part definition etc. Use this
+when you're traced a paper design or designed a complete design and want to convert it completely to a FreeSewing
+design. If you select "Selection, path to clipboard", the extension will take the object that are selected in Inkscape
+and copy only the code required to draw those paths in FreeSewing to your clipboard. Use this when you want to quickly
+iterate on a single part design and already have all code that ties things together in a FreeSewing development
+environment.
+
+The following is only relevant if you choose 'All, as a complete design'.
+
+The extension will let you select a design directory in the 'Design directory' text box. Choose the root directory of
+your design there, meaning the one that contains the 'src' and 'i18n' directories. If those don't exist yet they'll be
+created for you, but this way you can also use a design that was already made through the regular methods as documented
+in the Freesewing documentation (i.e. the 'yarn new design' process). When you click 'Apply', a number of files are
+written to that directory:
 
 - src\index.mjs. This file is only created if it doesn't exist yet; if it exists, it's not overwritten, so it's safe to
   modify this file and run the extension export again. This file contains the definition of the design, i.e. metadata
@@ -52,12 +67,19 @@ When you click 'Apply', a number of files are written to that directory:
   overwritten if it already exists and the same caveats apply as for index.mjs. This file draws the actual part. It does
   so in 'chunks' by calling out to other functions that actually draw the lines and curves, i.e. per path that was found
   in the svg. This way, you can manually customize anything you want in the design or part configuration, yet if you
-  change any paths in the SVG and re-run the tool, this file is not overwritten and the paths are. So you can add
+  change any paths in the SVG and re-run the extension, this file is not overwritten and the paths are. So you can add
   annotations etc. safely here and still be able to use the visual editing power of Inkscape later on for the actual
   part paths.
+- For each path of each part: src\parts\\[part name]\\paths\\[path name].mjs . These will be overwritten if they already
+  exist. This has the actual code to draw paths.
+
+Note that if you write to an existing design's directory, index.mjs and maybe parts\\[part name].mjs will likely already
+exist; the references (paths and variable names) in them may change depending on what's in your SVG. Best practice if
+you use an existing design is to have it version controlled and committed before you run the extension, then after you
+run it check which files are new and which ones have changed, and examine any changes so you understand what's going on.
 
 To re-iterate, by physically splitting the path defintions from the design and part definitions, you can modify the
-design and part without it being overwritten when the tool is re-run. This code structure has additional levels compared
+design and part without it being overwritten when the extension is re-run. This code structure has additional levels compared
 to the standard 'all parts are found in the same src folder' structure that is set up by the Freesewing 'new design'
 tools. This allows the converter to update code as needed when you run the plugin again. The index.mjs file that is
 generated by the extension already takes this alternative structure into account. If you run the extension for an
@@ -89,8 +111,6 @@ Development notes
 
 Todo
 ====
-- The way it documents as needing to have created the design first, yet the index.mjs not being overwritten, makes no
-  sense. Should make a complete design in one go without needing to create one with 'yarn new design' first.
 - Make a second plugin that initializes the current document to be a FS template. Insert a sample layer, add a metadata
   layer, ...
 - Convert markers and symbols somehow
@@ -104,3 +124,7 @@ Todo
 - Add the .class('fabric') stuff somehow from path properties.
 - Rename A0_full_design.svg to something that makes more sense, and check all the other test SVG's that they use the
   right layer names.
+- Clean up newline generation in generated point/path code; right now where there are newlines at the start/end of
+  blocks isn't perfectly consistent. Also come up with a way to specify how indentation is generated, and make that
+  consistent throughout the templates.
+- Is it 'Freesewing' or 'FreeSewing'?
