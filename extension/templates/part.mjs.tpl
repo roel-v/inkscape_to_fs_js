@@ -28,10 +28,12 @@ export const {{ part_name }} = {
 
     measurements: [
         // Enter the measurements your design needs here. See https://freesewing.dev/reference/measurements .
+        {%- for m in measurements %}
+      '{{ m }}',
+        {%- endfor %}
     ],
     options: {
         // Enter your pattern options here. Example:
-
         /*
         extraLength: {
             pct: 10,
@@ -42,5 +44,14 @@ export const {{ part_name }} = {
             ...pctBasedOn('neck')
         }
         */
+        {%- for o in options %}
+        {{ o }}: {
+            pct: 10,
+            min: 5,
+            max: 20,
+            label: '{{ o }}',
+            menu: 'fit'
+        }
+        {%- endfor %}
     }
 }

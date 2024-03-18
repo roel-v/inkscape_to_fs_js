@@ -4,6 +4,8 @@ from inkex import TextElement, PathElement
 
 import sys, os, re
 import enum
+import typing
+import math
 
 lib_path = os.path.join(os.path.dirname(__file__), 'site-packages')
 sys.path.append(lib_path)
@@ -20,6 +22,8 @@ class Part():
     def __init__(self, name):
         self.name = name
         self.paths = []
+        self.measurements = []
+        self.options = []
 
     def get_fs_name(self):
         ''' Get filesystem name, i.e. get name in a way that is safe to use in filenames.
@@ -40,11 +44,138 @@ def clean_name(string):
 
 def indent_filter(s, num_spaces=4):
     indent = ' ' * num_spaces
-    return '\n'.join(indent + line for line in s.split('\n'))
+    # Use `line` in the condition to check if it contains more than just whitespace
+    return '\n'.join(indent + line if line.strip() else '' for line in s.split('\n'))
 
 class FileExistsBehaviour(enum.Enum):
     KEEP_EXISTING = enum.auto()
     FORCE_OVERWRITE = enum.auto()
+
+class ScalingMode(enum.Enum):
+    NONE = enum.auto()
+    UNIFORM = enum.auto()
+    ANISOTROPIC = enum.auto()
+
+class Scaling():
+    def __init__(self, msg_func):
+        self.scaling_mode = ScalingMode.NONE
+        self.msg = msg_func
+        self.measurements = []
+        self.options = []
+
+    def get_path_distance(self, path):
+        # We derive the length by taking the distance between the end points in this path.
+        end_points = list(path.end_points)
+        if not len(end_points) == 2:
+            self.msg("Found a reference path with more than 2 end points. Only use a straight line.")
+            return None
+        d = distance(end_points[0], end_points[1])
+        # d is still in px, convert to mm assuming 96 DPI which is what Inkscape uses
+        d = d * (25.4 / 96)
+        #self.msg(f"p1: {end_points[0]}, p2: {end_points[1]}") # p1: 2936.53, 2152.78, # p2: 3949.3, 2152.78
+        #self.msg(f"Distance is {d}")
+        return d
+
+    def extract_measurements(self, measurement):
+        # The measurement specification can technically be any Javascript, but we're not going to parse it and check if
+        # it's valid and so on. Just look for strings that start with 'measurements.' or 'options.' and call it a day.
+
+        # Regular expression pattern to capture both the dictionary name and its members
+        pattern = r'(measurements|options)\.([a-zA-Z_$][a-zA-Z0-9_$]*)'
+
+        # Find all matches
+        matches = re.findall(pattern, measurement)
+
+        # Separating the results
+        measurements = [member for prefix, member in matches if prefix == 'measurements']
+        options = [member for prefix, member in matches if prefix == 'options']
+
+        return ( measurements, options )
+
+    def init_from_label(self, label, path):
+        #self.msg(f"Found element with label {label}")
+        str_parts = re.split(r'(?i)(measurement(-x|-y)?):', label, maxsplit=1)
+        if len(str_parts) <= 1:
+            return False
+
+        # @todo More accurate checking - if self.scaling_mode has specific values, some of these shouldn't happen. Not
+        # sure how useful this check really is.
+        #if not len(self.measurements) == 0 or not len(self.options) == 0:
+            # How can this happen? Don't think it should.
+        #    return False
+
+        scaling_mode_id = str_parts[1].strip()
+        measurement = str_parts[3].strip()
+
+        if scaling_mode_id == "measurement":
+            if self.scaling_mode == ScalingMode.ANISOTROPIC:
+                self.msg(f"Found scaling mode identifier 'measurement' in element labeled {label} but it is already set to 'anisotropic', error.")
+                return None
+            self.scaling_mode = ScalingMode.UNIFORM
+            self.uniform = measurement
+            self.length = self.get_path_distance(path)
+            measurements, options = self.extract_measurements(measurement)
+            self.measurements = measurements
+            self.options = options
+        elif scaling_mode_id == "measurement-x":
+            if self.scaling_mode == ScalingMode.UNIFORM:
+                self.msg(f"Found scaling mode identifier 'measurement-x' in element labeled {label} but it is already set to 'uniform', error.")
+                return None
+            self.scaling_mode = ScalingMode.ANISOTROPIC
+            self.x = measurement
+            self.length_x = self.get_path_distance(path)
+            measurements, options = self.extract_measurements(measurement)
+            self.measurements.extend(measurements)
+            self.options.extend(options)
+        elif scaling_mode_id == "measurement-y":
+            if self.scaling_mode == ScalingMode.UNIFORM:
+                self.msg(f"Found scaling mode identifier 'measurement-y' in element labeled {label} but it is already set to 'uniform', error.")
+                return None
+            self.scaling_mode = ScalingMode.ANISOTROPIC
+            self.y = measurement
+            self.length_y = self.get_path_distance(path)
+            measurements, options = self.extract_measurements(measurement)
+            self.measurements.extend(measurements)
+            self.options.extend(options)
+        else:
+            # Huh? Can not happen.
+            self.msg(f"Found scaling mode identifier {scaling_mode_id} in element labeled {label}, illegal value, error.")
+
+        return True
+
+    def format_points_preamble(self, element_id):
+        result = ""
+
+        if self.scaling_mode == ScalingMode.NONE:
+            # Do nothing
+            pass
+        elif self.scaling_mode == ScalingMode.UNIFORM:
+            result += f"scaling_{element_id} = ({self.uniform}) / {self.length}\n"
+        elif self.scaling_mode == ScalingMode.ANISOTROPIC:
+            result += f"scaling_{element_id}_x = ({self.x}) / {self.length_x}\n"
+            result += f"scaling_{element_id}_y = ({self.y}) / {self.length_y}\n"
+        else:
+            self.msg(f"Unhandled value for self.scaling_mode: {self.scaling_mode}")
+
+        return result
+
+    def format_new_point_call(self, point_name, element_id, x, y):
+        if self.scaling_mode == ScalingMode.NONE:
+            # Do nothing
+            pass
+        elif self.scaling_mode == ScalingMode.UNIFORM:
+            x = f"{x} * scaling_{element_id}"
+            y = f"{y} * scaling_{element_id}"
+        elif self.scaling_mode == ScalingMode.ANISOTROPIC:
+            x = f"{x} * scaling_{element_id}_x"
+            y = f"{y} * scaling_{element_id}_y"
+        else:
+            self.msg(f"Unhandled value for self.scaling_mode: {self.scaling_mode}")
+
+        return f"points.{point_name} = new Point({x}, {y})\n"
+
+def distance(p1, p2):
+    return math.sqrt(pow(abs(p1.x - p2.x), 2) + pow(abs(p1.y - p2.y), 2))
 
 class ToFreesewingJS(inkex.Effect):
     def __init__(self):
@@ -64,6 +195,8 @@ class ToFreesewingJS(inkex.Effect):
             inkex.paths.line: self.handle_line,
             inkex.paths.Line: self.handle_Line
         }
+
+        #self.scaling_mode = ScalingMode.NONE
 
     def add_arguments(self, pars):
         pars.add_argument("--tab", type=str, dest="what")
@@ -118,11 +251,11 @@ class ToFreesewingJS(inkex.Effect):
 
         if add_debug_cmts:
             self.points_code += f"// {str(command)}\n"
-        self.points_code += f"points.{point_name} = new Point({mt_x}, {mt_y})\n"
+        self.points_code += self.scaling.format_new_point_call(point_name, self.current_element_id, mt_x, mt_y)
 
         if add_debug_cmts:
-            self.path_code += f"\n    // inkex.paths.move: {str(command)}"
-        self.path_code += f"\n    .move(points.{point_name})"
+            self.path_code += f"    // inkex.paths.move: {str(command)}\n"
+        self.path_code += f"    .move(points.{point_name})\n"
 
         self.set_current_pen(point_name, mt_x, mt_y)
 
@@ -140,11 +273,11 @@ class ToFreesewingJS(inkex.Effect):
 
         if add_debug_cmts:
             self.points_code += f"// {str(command)}\n"
-        self.points_code += f"points.{point_name} = new Point({mt_x}, {mt_y})\n"
+        self.points_code += self.scaling.format_new_point_call(point_name, self.current_element_id, mt_x, mt_y)
 
         if add_debug_cmts:
-            self.path_code += f"\n    // inkex.paths.Move: {str(command)}"
-        self.path_code += f"\n    .move(points.{point_name})"
+            self.path_code += f"    // inkex.paths.Move: {str(command)}\n"
+        self.path_code += f"    .move(points.{point_name})\n"
 
         self.set_current_pen(point_name, mt_x, mt_y)
 
@@ -169,18 +302,18 @@ class ToFreesewingJS(inkex.Effect):
         # Control points are relative but in FS always absolute, so we need to convert.
         if add_debug_cmts:
             self.points_code += f"// {str(command)}\n"
-        self.points_code += f"points.{cp1_name} = new Point({cp1_x}, {cp1_y})\n"
-        self.points_code += f"points.{cp2_name} = new Point({cp2_x}, {cp2_y})\n"
-        self.points_code += f"points.{ep_name} = new Point({ep_x}, {ep_y})\n"
+        self.points_code += self.scaling.format_new_point_call(cp1_name, self.current_element_id, cp1_x, cp1_y)
+        self.points_code += self.scaling.format_new_point_call(cp2_name, self.current_element_id, cp2_x, cp2_y)
+        self.points_code += self.scaling.format_new_point_call(ep_name, self.current_element_id, ep_x, ep_y)
 
         # We can safely chain here, because there's always an m or M before this.
         if add_debug_cmts:
-            self.path_code += f"\n    // inkex.paths.curve: {str(command)}"
-        self.path_code += f"\n    .curve("
-        self.path_code += f"\n        points.{cp1_name},"
-        self.path_code += f"\n        points.{cp2_name},"
-        self.path_code += f"\n        points.{ep_name}"
-        self.path_code += f"\n    )"
+            self.path_code += f"    // inkex.paths.curve: {str(command)}\n"
+        self.path_code += f"    .curve(\n"
+        self.path_code += f"        points.{cp1_name},\n"
+        self.path_code += f"        points.{cp2_name},\n"
+        self.path_code += f"        points.{ep_name}\n"
+        self.path_code += f"    )\n"
 
         self.set_current_pen(ep_name, ep_x, ep_y)
 
@@ -204,18 +337,18 @@ class ToFreesewingJS(inkex.Effect):
 
         if add_debug_cmts:
             self.points_code += f"// {str(command)}\n"
-        self.points_code += f"points.{cp1_name} = new Point({cp1_x}, {cp1_y})\n"
-        self.points_code += f"points.{cp2_name} = new Point({cp2_x}, {cp2_y})\n"
-        self.points_code += f"points.{ep_name} = new Point({ep_x}, {ep_y})\n"
+        self.points_code += self.scaling.format_new_point_call(cp1_name, self.current_element_id, cp1_x, cp1_y)
+        self.points_code += self.scaling.format_new_point_call(cp2_name, self.current_element_id, cp2_x, cp2_y)
+        self.points_code += self.scaling.format_new_point_call(ep_name, self.current_element_id, ep_x, ep_y)
 
         # We can safely chain here, because there's always an m or M before this.
         if add_debug_cmts:
-            self.path_code += f"\n    // inkex.paths.Curve: {str(command)}"
-        self.path_code += f"\n    .curve("
-        self.path_code += f"\n        points.{cp1_name},"
-        self.path_code += f"\n        points.{cp2_name},"
-        self.path_code += f"\n        points.{ep_name}"
-        self.path_code += f"\n    )"
+            self.path_code += f"    // inkex.paths.Curve: {str(command)}\n"
+        self.path_code += f"    .curve(\n"
+        self.path_code += f"        points.{cp1_name},\n"
+        self.path_code += f"        points.{cp2_name},\n"
+        self.path_code += f"        points.{ep_name}\n"
+        self.path_code += f"    )\n"
 
         self.set_current_pen(ep_name, ep_x, ep_y)
 
@@ -231,11 +364,11 @@ class ToFreesewingJS(inkex.Effect):
 
         if add_debug_cmts:
             self.points_code += f"// {str(command)}\n"
-        self.points_code += f"points.{point_name} = new Point({lt_x}, {lt_y})\n"
+        self.points_code += self.scaling.format_new_point_call(point_name, self.current_element_id, lt_x, lt_y)
 
         if add_debug_cmts:
-            self.path_code += f"\n    // inkex.paths.horz: {str(command)}"
-        self.path_code += f"\n    .line(points.{point_name})"
+            self.path_code += f"    // inkex.paths.horz: {str(command)}\n"
+        self.path_code += f"    .line(points.{point_name})\n"
 
         self.set_current_pen(point_name, lt_x, lt_y)
 
@@ -251,11 +384,11 @@ class ToFreesewingJS(inkex.Effect):
 
         if add_debug_cmts:
             self.points_code += f"// {str(command)}\n"
-        self.points_code += f"points.{point_name} = new Point({lt_x}, {lt_y})\n"
+        self.points_code += self.scaling.format_new_point_call(point_name, self.current_element_id, lt_x, lt_y)
 
         if add_debug_cmts:
-            self.path_code += f"\n    // inkex.paths.Horz: {str(command)}"
-        self.path_code += f"\n    .line(points.{point_name})"
+            self.path_code += f"    // inkex.paths.Horz: {str(command)}\n"
+        self.path_code += f"    .line(points.{point_name})\n"
 
         self.set_current_pen(point_name, lt_x, lt_y)
 
@@ -271,11 +404,11 @@ class ToFreesewingJS(inkex.Effect):
 
         if add_debug_cmts:
             self.points_code += f"// {str(command)}\n"
-        self.points_code += f"points.{point_name} = new Point({lt_x}, {lt_y})\n"
+        self.points_code += self.scaling.format_new_point_call(point_name, self.current_element_id, lt_x, lt_y)
 
         if add_debug_cmts:
-            self.path_code += f"\n    // inkex.paths.vert: {str(command)}"
-        self.path_code += f"\n    .line(points.{point_name})"
+            self.path_code += f"    // inkex.paths.vert: {str(command)}\n"
+        self.path_code += f"    .line(points.{point_name})\n"
 
         self.set_current_pen(point_name, lt_x, lt_y)
 
@@ -291,11 +424,11 @@ class ToFreesewingJS(inkex.Effect):
 
         if add_debug_cmts:
             self.points_code += f"// {str(command)}\n"
-        self.points_code += f"points.{point_name} = new Point({lt_x}, {lt_y})\n"
+        self.points_code += self.scaling.format_new_point_call(point_name, self.current_element_id, lt_x, lt_y)
 
         if add_debug_cmts:
-            self.path_code += f"\n    // inkex.paths.Vert: {str(command)}"
-        self.path_code += f"\n    .line(points.{point_name})"
+            self.path_code += f"    // inkex.paths.Vert: {str(command)}\n"
+        self.path_code += f"    .line(points.{point_name})\n"
 
         self.set_current_pen(point_name, lt_x, lt_y)
 
@@ -306,8 +439,8 @@ class ToFreesewingJS(inkex.Effect):
             self.points_code += f"// {str(command)}\n"
 
         if add_debug_cmts:
-            self.path_code += f"\n    // inkex.paths.{cmd_name}Close: {str(command)}"
-        self.path_code += f"\n    .line(points.{self.start_point})"
+            self.path_code += f"    // inkex.paths.{cmd_name}Close: {str(command)}\n"
+        self.path_code += f"    .line(points.{self.start_point})\n"
 
         self.set_current_pen(self.start_point, self.start_position.x, self.start_position.y)
 
@@ -329,11 +462,11 @@ class ToFreesewingJS(inkex.Effect):
 
         if add_debug_cmts:
             self.points_code += f"// {str(command)}\n"
-        self.points_code += f"points.{point_name} = new Point({lt_x}, {lt_y})\n"
+        self.points_code += self.scaling.format_new_point_call(point_name, self.current_element_id, lt_x, lt_y)
 
         if add_debug_cmts:
-            self.path_code += f"\n    // inkex.paths.line: {str(command)}"
-        self.path_code += f"\n    .line(points.{point_name})"
+            self.path_code += f"    // inkex.paths.line: {str(command)}\n"
+        self.path_code += f"    .line(points.{point_name})\n"
 
         self.set_current_pen(point_name, lt_x, lt_y)
 
@@ -349,15 +482,15 @@ class ToFreesewingJS(inkex.Effect):
 
         if add_debug_cmts:
             self.points_code += f"// {str(command)}\n"
-        self.points_code += f"points.{point_name} = new Point({lt_x}, {lt_y})\n"
+        self.points_code += self.scaling.format_new_point_call(point_name, self.current_element_id, lt_x, lt_y)
 
         if add_debug_cmts:
-            self.path_code += f"\n    // inkex.paths.Line: {str(command)}"
-        self.path_code += f"\n    .line(points.{point_name})"
+            self.path_code += f"    // inkex.paths.Line: {str(command)}\n"
+        self.path_code += f"    .line(points.{point_name})\n"
 
         self.set_current_pen(point_name, lt_x, lt_y)
 
-    def path_to_code(self, path: inkex.paths.PathCommand):
+    def path_to_code(self, path: inkex.paths.Path):
         """
         This function makes JS code that defines a list of points, and then a Path that combines those points.
         It only returns True or False for success or failure. The actual results are stored in self.points_code
@@ -368,7 +501,9 @@ class ToFreesewingJS(inkex.Effect):
         self.current_pen_position = Point(0, 0)
 
         self.points_code = f"// Path: {self.current_element_id}\n"
-        self.path_code = "paths." + clean_name(self.current_element_id) + " = new Path()"
+        self.points_code += self.scaling.format_points_preamble(self.current_element_id)
+
+        self.path_code = "paths." + clean_name(self.current_element_id) + " = new Path()\n"
 
         first_command = True
         for command in path:
@@ -441,6 +576,8 @@ class ToFreesewingJS(inkex.Effect):
                     'design_name' : design_name,
                     'part_name' : part.name,
                     'paths' : part.paths,
+                    'measurements' : part.measurements,
+                    'options' : part.options,
                 }
             )
 
@@ -475,8 +612,9 @@ class ToFreesewingJS(inkex.Effect):
 
         return (design_name,)
 
-    def extract_paths(self, root_element):
-        # Looks for 'paths' inside the give root_element.
+    def extract_paths(self, root_element) -> typing.Optional[typing.List[Path]]:
+        # Looks for 'paths' inside the give root_element. root_element is most likely a layer or other type of SVG group
+        # (<g>).
         # Processes all known inkex.paths types, plus Line. But all known types are derived from inkex.PathElement. We
         # process that manually now, maybe it's more elegant to also do that through the visitor pattern implemented
         # through self.dispatch_table? Might get tricky because of the inheritance. Should check how isinstance() works
@@ -487,11 +625,38 @@ class ToFreesewingJS(inkex.Effect):
 
         paths = [] # return value
 
+        self.scaling = Scaling(self.msg)
+        elements_to_skip = []
+
+        # First we have to check if there is any scaling defined. Search for paths with a specific label.
         for element in root_element.iter():
             if isinstance(element, types):
                 if isinstance(element, inkex.PathElement):
                     path = inkex.paths.Path(element.get('d'))
+                    # Is this a reference path, i.e. does it indicate a reference measurement?
+                    # There can be max two.
+                    label_attrib_name = f"{{{element.nsmap['inkscape']}}}label"
+                    if label_attrib_name in element.attrib:
+                        elem_label = element.attrib[label_attrib_name]
+                        if not self.scaling.init_from_label(elem_label, path):
+                            continue
+
+                        elements_to_skip.append(element.get_id())
+
+        # @todo Some way to check that if a reference object was found, it was valid?
+
+        #self.msg(f"Using scaling mode {self.scaling_mode}")
+        #self.msg(f"Parameters: {self.scaling}")
+
+        for element in root_element.iter():
+            if isinstance(element, types):
+                if isinstance(element, inkex.PathElement):
+                    if element.get_id() in elements_to_skip:
+                        continue
+
+                    path = inkex.paths.Path(element.get('d'))
                     self.current_element_id = element.get_id()
+
                     if not self.path_to_code(path):
                         self.msg("path_to_code failed. Unsure what to do. Probably critical bug.")
                         continue
@@ -514,7 +679,7 @@ class ToFreesewingJS(inkex.Effect):
 
     def extract_parts(self, design_name, root):
         # Extract all FS parts, which are layers (<g> element with inkscape:groupmode="layer" attribute) and need to
-        # have inkscape:label="part: front" attributes, the values of which need to start with 'part:'.
+        # have inkscape:label attributes, the values of which need to start with 'part:'.
         parts = [] # return value
         svg_layers = root.xpath('//svg:g[@inkscape:groupmode="layer"]', namespaces=inkex.NSS)
         for layer in svg_layers:
@@ -531,6 +696,8 @@ class ToFreesewingJS(inkex.Effect):
 
             new_part = Part(part_name)
             new_part.paths = self.extract_paths(layer)
+            new_part.measurements = self.scaling.measurements
+            new_part.options = self.scaling.options
             parts.append(new_part)
 
         return parts

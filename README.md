@@ -49,6 +49,39 @@ in your SVG make up what parts, what is the name of the design etc. How you let 
   descriptive ID's for your paths, as these will translate into accurate and descriptive variable names in your
   FreeSewing code. Other people and your future self will thank you.
 
+- With an SVG marked up as described above, your generated design code will not be parametric. There is no way to know
+  what parts should scale by how much from the information in the SVG. However there is some support to make outputs
+  have some basic parameterization. The details of this are described in the section 'Output modes' below. What matters
+  in this section is how you mark up the so called 'reference paths'. 'Reference paths' are paths in your SVG that
+  indicate a base length, from which a scaling factor is derived to scale the rest of your design. To mark up a uniform
+  reference path, add a path with exactly two end points (so, basically, a straight line) with a label that starts with
+  'measurement:'. To mark up two reference paths, one for the X direction and one for the Y direction, add two such
+  paths, except with the labels starting with 'measurement-x:' resp. 'measurement-y:'. After the colon in all three
+  cases, you can enter any valid Javascript expression which will be entered into your generated code verbatim. Don't
+  get too carried away here. There is no real Javascript parsing being done, so the logic is all based on simple string
+  manipulation. Your measurement specifications can refer to measurements using for example 'measurements.head', just
+  like you would in your part's drafting function. Likewise for options. The extension will extract all used
+  measurements and options from any expressions found, and insert them into your part definition so FreeSewing knows it
+  should ask for those measurements from the user and provide them to your code.
+
+  An example of a valid label for uniform scaling is 'measurement: measurements.chest / 2'.
+
+  You can only have either one reference shape with the label starting with 'measurement' or two starting with
+  'measurement-x' and 'measurement-y'. Any illogical combination of these is an error and in the best case you'll get an
+  error message when running the extension. In the worst case your code will simply be invalid.
+
+  Again, see the section 'Output modes' below for more details. And read it carefully, you *will* need the information
+  in there to understand what is going on. This is not self-explanatory.
+
+  A practical note for including reference sizes: if you use arrows at the end of your path, which is quite a natural
+  thing to do as it resembles most how you'd mark up a size on a paper pattern, the 'width' of your path at the top of
+  the Inkscape screen will no longer match the actual length of the path. (assuming a horizontal path here, substitute
+  for height in case of a vertical line. You're on your own if you start using diagonal reference paths, good luck
+  staying sane.) This is because Inkscap add the size of the arrow to the path; the arrow length isn't included in the
+  distance between the path's end points. Maybe there is a way to configure your arrows to be inside the path, but the
+  default isn't. So be very careful when you do that, be very aware of what is going on wrt sizes and what is part of
+  the shown lengths and what is not.
+
 - Path styling is ignored. So what color, line style etc. you use for your paths is irrelevant for the generated code.
 
 What is generated
@@ -101,7 +134,36 @@ directory, then into your existing design's directory, and then compare the gene
 
 Output modes
 ------------
-@todo
+Basic on how certain reference paths are marked up, as explained above, your path generation can be done in one of three
+so-called 'scaling modes'.
+
+The first one is 'none'. This one is simple, no scaling is done and your design will be fully non-parametric. Any
+measurements you need to base your design on will have to be entered manually. This is what you'll want for anything but
+simple designs. Any complex piece of a real garment will have shapes so complex their measurements cannot be derived
+from the SVG. The more complex automatic scaling methods are suitable only for relatively simple shapes, say pockets and
+such.
+
+The second scaling mode is 'uniform'. This means that your piece is scaled with the same scaling factor along both the X
+and Y axis. This scaling factor is derived from the actual length of the reference path in the SVG relative to the
+formula that was used in its label field. For a simple example, if your reference path label is
+
+    measurement: measurements.chest / 2
+
+then it will calculate the length of the path (by taking the distance between the start- and end points of that path),
+and divide your measurement by the label expression by that length. This is the scaling factor. If the length of your
+reference path in the SVG is 400 mm, and measurements.chest as entered by the user is 800 mm, the scaling factor will be
+(800 / 2) / 400 = 1. Then the location of each point in the path is multiplied by that scaling factor. In this example,
+this will cause no difference, since the measurement is the same as the reference size in the SVG. But if the user has a
+100 cm chest (1000 mm), the scaling factor will be (1000 / 2) / 400 = 1.25 and all points will be moved over by that
+amount, effectively scaling the design up 25%.
+
+The third scaling mode is 'anisotropic'. This just means 'different in the X and Y directions'. The same principle
+applies as for the uniform scaling, except you can specify different scaling factors in the X and Y directions; meaning
+you can e.g. let the width of a part depend on a width measurement, and the height on a (wait for it!) height
+measurement.
+
+For examples, see test\_svgs\scaled\_uniform.svg and test\_svgs\scaled\_anisotropic.svg and examine the output they
+generate.
 
 Example usage
 =============

@@ -10,8 +10,8 @@ function draft_{{ path_fs_name }}(
   part,
 )
 {
-  {{ points_code | indent }}
-  {{ path_code | indent }}
+{{ points_code | indent }}
+{{ path_code | indent }}
 }
 
 export { draft_{{ path_fs_name }} }
