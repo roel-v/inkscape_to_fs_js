@@ -204,6 +204,7 @@ class ToFreesewingJS(inkex.Effect):
         pars.add_argument("--export_what", type=str)
         pars.add_argument("--fp_precision", type=int, default=4)
         pars.add_argument("--show_debug_comments", type=inkex.Boolean)
+        pars.add_argument("--force_overwrite", type=inkex.Boolean)
 
     def get_current_curve_point_names(self):
         ep_name = self.get_current_point_name() + "_ep"
@@ -551,6 +552,9 @@ class ToFreesewingJS(inkex.Effect):
 
     def write_results(self, design_name, parts):
         output_dir = self.options.output_dir
+        force_overwrite = self.options.force_overwrite
+
+        optionally_keep = FileExistsBehaviour.FORCE_OVERWRITE if force_overwrite else FileExistsBehaviour.KEEP_EXISTING
 
         os.makedirs(f"{output_dir}", exist_ok=True)
         os.makedirs(f"{output_dir}\\i18n", exist_ok=True)
@@ -558,7 +562,7 @@ class ToFreesewingJS(inkex.Effect):
         os.makedirs(f"{output_dir}\\src\\parts", exist_ok=True)
 
         # index.mjs, the design itself which ties together the parts. Only when it doesn't exist already.
-        self.render_template('index.mjs.tpl', os.path.join(output_dir, "src", "index.mjs"), FileExistsBehaviour.KEEP_EXISTING,
+        self.render_template('index.mjs.tpl', os.path.join(output_dir, "src", "index.mjs"), optionally_keep,
             {
                 'design_name' : design_name,
                 'parts': parts
@@ -571,7 +575,7 @@ class ToFreesewingJS(inkex.Effect):
             os.makedirs(os.path.join(output_dir, "src", "parts", part_fs_name), exist_ok=True)
 
             # The part definition
-            self.render_template('part.mjs.tpl', os.path.join(output_dir, "src",  "parts", part_fs_name, f"{part_fs_name}.mjs"), FileExistsBehaviour.KEEP_EXISTING,
+            self.render_template('part.mjs.tpl', os.path.join(output_dir, "src",  "parts", part_fs_name, f"{part_fs_name}.mjs"), optionally_keep,
                 {
                     'design_name' : design_name,
                     'part_name' : part.name,
@@ -595,8 +599,8 @@ class ToFreesewingJS(inkex.Effect):
                 )
 
         # The contents of the i18n directory if they don't exist yet.
-        self.render_template('i18n_index.mjs.tpl', os.path.join(output_dir, "i18n", f"index.mjs"), FileExistsBehaviour.KEEP_EXISTING)
-        self.render_template('i18n_strings.json.tpl', os.path.join(output_dir, "i18n", f"en.json"), FileExistsBehaviour.KEEP_EXISTING)
+        self.render_template('i18n_index.mjs.tpl', os.path.join(output_dir, "i18n", f"index.mjs"), optionally_keep)
+        self.render_template('i18n_strings.json.tpl', os.path.join(output_dir, "i18n", f"en.json"), optionally_keep)
 
         return True
 
@@ -700,7 +704,7 @@ class ToFreesewingJS(inkex.Effect):
             str_parts = re.split(r'(?i)part:', layer_label, maxsplit=1)
             if len(str_parts) <= 1:
                 continue
-            part_name = str_parts[1].strip()
+            part_name = clean_name(str_parts[1].strip())
             #self.msg(f"Found Freeswing part layer with name {part_name}")
 
             new_part = Part(part_name)
