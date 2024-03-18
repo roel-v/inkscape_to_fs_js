@@ -19,4 +19,4 @@ const {{ design_name | capitalize }} = new Design({
   ]
 })
 
-export { {% for part in parts -%} {{ part.name }}{{ ", " if not loop.last }}{%- endfor -%}, {{ design_name | capitalize }}, i18n }
+export { {% for part in parts -%} {{ part.name }}{{ ", " }}{%- endfor -%} {{ design_name | capitalize }}, i18n }
