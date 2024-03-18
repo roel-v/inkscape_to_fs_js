@@ -553,8 +553,8 @@ class ToFreesewingJS(inkex.Effect):
         output_dir = self.options.output_dir
 
         os.makedirs(f"{output_dir}", exist_ok=True)
-        os.makedirs(f"{output_dir}\\src", exist_ok=True)
         os.makedirs(f"{output_dir}\\i18n", exist_ok=True)
+        os.makedirs(f"{output_dir}\\src", exist_ok=True)
         os.makedirs(f"{output_dir}\\src\\parts", exist_ok=True)
 
         # index.mjs, the design itself which ties together the parts. Only when it doesn't exist already.
@@ -593,6 +593,10 @@ class ToFreesewingJS(inkex.Effect):
                         'path_code' :  path.path_code,
                     }
                 )
+
+        # The contents of the i18n directory if they don't exist yet.
+        self.render_template('i18n_index.mjs.tpl', os.path.join(output_dir, "i18n", f"index.mjs"), FileExistsBehaviour.KEEP_EXISTING)
+        self.render_template('i18n_strings.json.tpl', os.path.join(output_dir, "i18n", f"en.json"), FileExistsBehaviour.KEEP_EXISTING)
 
         return True
 
