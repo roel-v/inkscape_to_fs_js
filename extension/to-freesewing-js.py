@@ -522,7 +522,7 @@ class ToFreesewingJS(inkex.Effect):
 
         return True
 
-    def render_template(self, template_name: str, output_filename: str, force_overwrite: FileExistsBehaviour, data: dict):
+    def render_template(self, template_name: str, output_filename: str, force_overwrite: FileExistsBehaviour, data: dict = {}):
         if os.path.isfile(output_filename) and force_overwrite == False:
             return
 
@@ -602,17 +602,22 @@ class ToFreesewingJS(inkex.Effect):
 
     def parse_metadata(self, root):
         metadata_layer = root.xpath('//svg:g[@inkscape:groupmode="layer" and @inkscape:label="metadata"]', namespaces=inkex.NSS)
-        # @todo Use name of document as default
-        design_name = "newDesign"
+        if self.svg.name is None or self.svg.name == "":
+            design_name = "newDesign"
+        else:
+            base_name = os.path.basename(self.svg.name)
+            file_name, file_extension = os.path.splitext(base_name)
+            design_name = file_name
+
         if len(metadata_layer) > 0:
             name_elements = metadata_layer[0].xpath('//svg:text[@inkscape:label="design-name"]', namespaces=inkex.NSS)
 
             if len(name_elements) > 0:
                 design_name = self.extract_text(name_elements[0])
             else:
-                self.msg("No text element with label 'design-name' found in layer 'metadata', using default design name of 'newDesign'.")
+                self.msg(f"No text element with label 'design-name' found in layer 'metadata', using design name of '{design_name}'.")
         else:
-            self.msg("No layer 'metadata' found in which to look for a text element with label 'design-name', using default design name of 'newDesign'.")
+            self.msg(f"No layer 'metadata' found in which to look for a text element with label 'design-name', using design name of '{design_name}'.")
 
         return (design_name,)
 
